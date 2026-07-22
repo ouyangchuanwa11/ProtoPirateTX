@@ -31,13 +31,18 @@ jobs:
           cp -r $GITHUB_WORKSPACE/source_code/* flipperzero-firmware/applications_user/protopirate_tx/
           rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
           rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
-          rm -rf flipperzero-firmware/applications_user/protopirate_tx/build 2>/dev/null || true
 
       - name: Build fap
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          ./fbt fap_protopirate_tx
+          ./fbt --extra-ext-apps=protopirate_tx fap_dist
+
+      - name: List build output
+        working-directory: ./flipperzero-firmware
+        shell: bash
+        run: |
+          find build -name "*.fap" -type f 2>/dev/null || true
 
       - name: Upload fap artifact
         uses: actions/upload-artifact@v4
