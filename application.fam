@@ -1,12 +1,12 @@
 App(
     appid = "protopirate_tx",
+    apptype = "External",
     name = "ProtoPirateTX",
     fap_description = "Decode and TX 11+ rolling-code protocols with counter rollback",
     fap_author = "RocketGod",
     fap_weburl = "https://github.com/RocketGod-git/ProtoPirate",
     fap_category = "Sub-GHz",
     fap_version = "2.0",
-    fap_icon = "assets/protopirate_icon.png",
     fap_libs = [
         "subghz",
     ],
