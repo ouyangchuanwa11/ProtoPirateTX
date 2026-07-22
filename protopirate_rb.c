@@ -20,12 +20,6 @@ static void result_button_callback(void* context, int32_t index, InputType type)
     }
 }
 
-static bool back_event_callback(void* context) {
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-    app->scene = SceneMainMenu;
-    return true;
-}
-
 static uint32_t navigation_callback(void* context) {
     UNUSED(context);
     return 0;
