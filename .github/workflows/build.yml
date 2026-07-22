@@ -32,34 +32,32 @@ jobs:
           rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
           rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
 
-      - name: Build fap and save logs
+      - name: Build fap
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          set -o pipefail
-          ./fbt clean 2>&1 | tail -3 || true
-          echo "=== FBT BUILD START ==="
-          ./fbt fap_protopirate_tx 2>&1 | tee /tmp/fbt_build.log
-          EXITCODE=${PIPESTATUS[0]}
-          echo "=== FBT EXIT CODE: $EXITCODE ==="
-          echo "=== LIST .fap ==="
-          find build -name "*.fap" -type f 2>/dev/null || echo "(no .fap)"
-          echo "=== LAST 80 LINES ==="
-          tail -80 /tmp/fbt_build.log
-          echo "=== END BUILD DIAG ==="
-          exit $EXITCODE
+          ./fbt clean 2>&1 | tail -3
+          ./fbt fap_dist 2>&1 | tee /tmp/fbt_build.log
+          exit ${PIPESTATUS[0]}
 
-      - name: Debug output
+      - name: Upload build log (even if build failed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/fbt_build.log
+          if-no-files-found: warn
+
+      - name: List .fap files
         if: always()
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          echo "=== Any fap files ==="
           find build -name "*.fap" -type f 2>/dev/null || echo "(none)"
-          echo "=== Build folder contents ==="
-          find build -path "*/protopirate*" -type f 2>/dev/null | head -20 || echo "(no protopirate in build)"
-          echo "=== Build folder tree (clean) ==="
-          find build -maxdepth 4 -type d 2>/dev/null | head -20 || echo "(no build folder)"
+          # Also output last 30 lines of build log
+          echo "=== Last 60 lines of build log ==="
+          tail -60 /tmp/fbt_build.log 2>/dev/null || echo "(no log)"
+          echo "=== END ==="
 
       - name: Upload fap artifact
         if: success()
