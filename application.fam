@@ -10,7 +10,6 @@ App(
     sources = [
         "protopirate_rb.c",
         "protopirate_decoder.c",
-        "protopirate_rollback.c",
         "protopirate_tx.c",
     ],
     fap_icon = None,
