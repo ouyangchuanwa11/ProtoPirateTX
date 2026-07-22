@@ -28,33 +28,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p flipperzero-firmware/applications_user/protopirate_tx
-          rsync -av --exclude='.github' --exclude='.git' --exclude='flipperzero-firmware' \
-            $GITHUB_WORKSPACE/source_code/ \
-            flipperzero-firmware/applications_user/protopirate_tx/
-          echo "=== Files in app dir ==="
-          find flipperzero-firmware/applications_user/protopirate_tx -type f
-
-      - name: Install Python deps
-        working-directory: ./flipperzero-firmware
-        shell: bash
-        run: |
-          pip install --quiet -r requirements.txt 2>/dev/null || true
+          cp -r $GITHUB_WORKSPACE/source_code/* flipperzero-firmware/applications_user/protopirate_tx/
+          rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
+          rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
 
       - name: Build fap
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          ./fbt --extra-ext-apps=protopirate_tx fap_dist 2>&1 | tail -200
+          ./fbt --extra-ext-apps=protopirate_tx fap_dist
 
-      - name: Find fap files
+      - name: List build output
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          find build -name "*.fap" -type f 2>/dev/null || echo "NO FAP FILES"
+          find build -name "*.fap" -type f 2>/dev/null || true
 
       - name: Upload fap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: protopirate_tx-fap
+          name: protopirate_tx
           path: flipperzero-firmware/build/**/*.fap
-          if-no-files-found: warn
+          if-no-files-found: error

@@ -10,12 +10,6 @@
 #include <gui/modules/popup.h>
 #include <gui/modules/button_menu.h>
 #include <input/input.h>
-#include <lib/subghz/subghz_worker.h>
-#include <lib/subghz/subghz_tx_rx_worker.h>
-#include <lib/subghz/devices/devices.h>
-#include <lib/subghz/protocols/raw.h>
-#include <lib/subghz/receiver.h>
-#include <lib/subghz/transmitter.h>
 #include <lib/subghz/protocols/protocol_items.h>
 #include <furi_hal_subghz.h>
 #include <furi_hal.h>
@@ -23,6 +17,7 @@
 #include <toolbox/stream/file_stream.h>
 #include <toolbox/stream/buffered_file_stream.h>
 #include <toolbox/path.h>
+#include <toolbox/level_duration.h>
 #include <flipper_format/flipper_format.h>
 
 #define TAG "ProtoPirateRB"
@@ -82,14 +77,6 @@ typedef struct {
     ButtonMenu* button_menu;
     Popup* popup;
 
-    SubGhzWorker* subghz_worker;
-    SubGhzTxRxWorker* txrx_worker;
-    SubGhzEnvironment* environment;
-    SubGhzReceiver* receiver;
-    SubGhzTransmitter* transmitter;
-    SubGhzProtocolDecoderBase* decoder_result;
-    FlipperFormat* fff_data;
-
     uint32_t frequency;
     HistoryItem history[MAX_HISTORY];
     uint8_t history_count;
@@ -102,30 +89,25 @@ typedef struct {
     uint32_t result_menu_index;
 } ProtoPirateApp;
 
+
 // ============ ???? ============
 typedef enum {
     SceneMainMenu,
     SceneReceive,
     SceneResult,
-    SceneSubLoad,
-    SceneHistory,
     SceneRollback,
-    SceneRollbackSingle,
-    SceneRollbackSettings,
     SceneReplay,
-    SceneBruteForce,
     SceneFreqSelect,
     SceneInfo,
 } AppScene;
 
 // ============ ???? ============
-ProtoPirateApp* protoPirateApp_alloc();
+ProtoPirateApp* protoPirateApp_alloc(void);
 void protoPirateApp_free(ProtoPirateApp* app);
 int32_t protopirate_rb_app_entry(void* p);
 
 // ??
 void scene_main_menu_alloc(ProtoPirateApp* app);
-void scene_main_menu_callback(void* context, uint32_t index);
 
 // ??
 void scene_receive_alloc(ProtoPirateApp* app);
@@ -135,25 +117,14 @@ void scene_receive_enter(ProtoPirateApp* app);
 void scene_result_alloc(ProtoPirateApp* app);
 void scene_result_enter(ProtoPirateApp* app);
 
-// ?Ghz????
-void scene_sub_load_alloc(ProtoPirateApp* app);
-void scene_sub_load_enter(ProtoPirateApp* app);
-
-// ??
-void scene_history_alloc(ProtoPirateApp* app);
-
 // RollBack
 void scene_rollback_alloc(ProtoPirateApp* app);
-void scene_rollback_enter(ProtoPirateApp* app);
-void scene_rollback_single_alloc(ProtoPirateApp* app);
-void scene_rollback_settings_alloc(ProtoPirateApp* app);
 
 // ??
 void scene_replay_alloc(ProtoPirateApp* app);
 
 // ????
 void scene_freq_select_alloc(ProtoPirateApp* app);
-void scene_freq_select_enter(ProtoPirateApp* app);
 
 // ??
 void scene_info_alloc(ProtoPirateApp* app);

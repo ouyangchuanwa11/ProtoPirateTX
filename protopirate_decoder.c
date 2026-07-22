@@ -45,31 +45,19 @@ const char* get_button_name(const char* proto, uint8_t btn) {
     return "Btn:??";
 }
 
-// ===================== ??? =====================
-
-// ---------- Kia V0 ----------
-static uint8_t kia_v0_extract_bits(uint32_t* data_hi, uint32_t* data_lo, uint16_t bit_count) {
-    *data_hi = 0;
-    *data_lo = 1;
-    return bit_count;
-}
-
+// ===================== Kia V0 ?? =====================
 DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
-    // ????:?raw??????
-    // ???????subghz?????
+    UNUSED(app);
     const char* str = furi_string_get_cstr(raw_str);
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bit_count = 0;
     int16_t prev_dur = 0;
-    bool in_header = true;
     uint16_t header_count = 0;
     uint8_t step = 0;
 
-    // Kia V0 timing
     const uint16_t te_short = 250, te_long = 500, te_delta = 100;
     const uint8_t min_bits = 61;
 
-    // ???????
     int32_t val = 0;
     bool negative = false;
     for(const char* p = str; *p; p++) {
@@ -117,10 +105,7 @@ DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
             } else if(step == 2) {
                 if(level) {
                     if(abs_dur >= te_long + te_delta * 2) {
-                        if(bit_count == min_bits) {
-                            // ????
-                            goto decode_done;
-                        }
+                        if(bit_count == min_bits) goto decode_done;
                         step = 0;
                     } else {
                         prev_dur = abs_dur;
@@ -133,13 +118,11 @@ DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
                 if(!level) {
                     if(abs((int16_t)(prev_dur - te_short)) < te_delta &&
                        abs((int16_t)(abs_dur - te_short)) < te_delta) {
-                        // bit 0
                         data_lo = (data_lo << 1) | 0;
                         bit_count++;
                         step = 2;
                     } else if(abs((int16_t)(prev_dur - te_long)) < te_delta &&
                               abs((int16_t)(abs_dur - te_long)) < te_delta) {
-                        // bit 1
                         data_lo = (data_lo << 1) | 1;
                         bit_count++;
                         step = 2;
@@ -157,13 +140,12 @@ DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
 decode_done:
     if(bit_count < min_bits) return NULL;
 
-    // ????
     uint32_t serial = (data_lo >> 12) & 0x0FFFFFFF;
     uint8_t button = (data_lo >> 8) & 0x0F;
     uint16_t counter = (data_hi << 24 | (data_lo >> 8)) >> 16 & 0xFFFF;
     uint8_t rxcrc = data_lo & 0xFF;
 
-    uint8_t crc_bytes[6];
+    uint8_t crc_bytes[6] = {0};
     crc_bytes[0] = (data_hi >> 16) & 0xFF;
     crc_bytes[1] = (data_hi >> 8) & 0xFF;
     crc_bytes[2] = data_hi & 0xFF;
@@ -183,18 +165,17 @@ decode_done:
     result->counter = counter;
     result->crc_ok = (rxcrc == calc_crc);
     result->encrypted = true;
-
     return result;
 }
 
 // ---------- ????? ----------
-DecodeResult* decode_kia_v1(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
-DecodeResult* decode_kia_v2(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
-DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
-DecodeResult* decode_starline(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
-DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
-DecodeResult* decode_fiat(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
-DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_str) { (void)app; (void)raw_str; return NULL; }
+DecodeResult* decode_kia_v1(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
+DecodeResult* decode_kia_v2(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
+DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
+DecodeResult* decode_starline(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
+DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
+DecodeResult* decode_fiat(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
+DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_str) { UNUSED(app); UNUSED(raw_str); return NULL; }
 
 // ===================== ????? =====================
 DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data) {
