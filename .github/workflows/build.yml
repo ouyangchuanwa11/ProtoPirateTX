@@ -32,34 +32,9 @@ jobs:
           rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
           rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
 
-      - name: Try building with fbt
-        id: build
+      - name: Build protopirate_tx
         working-directory: ./flipperzero-firmware
-        continue-on-error: true
         shell: bash
         run: |
-          ./fbt clean 2>&1 | tail -3
-          ./fbt fap_protopirate_tx 2>&1 > /tmp/fbt.log
-          echo "exitcode=$?" >> $GITHUB_OUTPUT
-
-      - name: Analyze build log
-        if: always()
-        shell: bash
-        run: |
-          LOG=/tmp/fbt.log
-          if [ ! -f "$LOG" ]; then
-            echo "No build log found"
-            echo "=== BUILD FOLDER ==="
-            ls -la build/ 2>/dev/null || echo "(no build)"
-            exit 0
-          fi
-          echo "=== LOG SIZE ==="
-          wc -l $LOG
-          echo "=== LAST 100 LINES ==="
-          tail -100 $LOG
-          echo "=== GREP ERROR ==="
-          grep -i "error" $LOG | tail -20
-          echo "=== GREP FBT ==="
-          grep -A5 "FBT ERRORS" $LOG | tail -30
-          echo "=== FIND FAP ==="
-          find . -name "*.fap" -type f 2>/dev/null || echo "(no fap)"
+          rm -rf build
+          ./fbt fap_protopirate_tx 2>&1
