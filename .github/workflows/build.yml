@@ -1,4 +1,4 @@
-name: Build ProtoPirateTX
+name: Build ProtoPirateTX FAP
 
 on:
   push:
@@ -11,29 +11,37 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          path: source_code
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git make cmake gcc-arm-none-eabi libstdc++-arm-none-eabi-newlib python3-pip
-          pip3 install --user flipperzero-fbt
+      - name: Checkout Flipper Zero firmware (Momentum)
+        uses: actions/checkout@v4
+        with:
+          repository: Next-Flip/Momentum-Firmware
+          ref: dev
+          path: flipperzero-firmware
+          fetch-depth: 1
 
-      - name: Clone Momentum firmware
+      - name: Copy application source to firmware
+        shell: bash
         run: |
-          git clone --recursive --depth=1 https://github.com/Next-Flip/Momentum-Firmware.git firmware-staging
-          rm -rf firmware-staging/applications_user/protopirate_tx
-          cp -r $GITHUB_WORKSPACE firmware-staging/applications_user/protopirate_tx
+          mkdir -p flipperzero-firmware/applications_user/protopirate_tx
+          cp -r $GITHUB_WORKSPACE/source_code/* flipperzero-firmware/applications_user/protopirate_tx/
+          rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
+          rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
+          rm -rf flipperzero-firmware/applications_user/protopirate_tx/build 2>/dev/null || true
 
       - name: Build fap
+        working-directory: ./flipperzero-firmware
+        shell: bash
         run: |
-          cd firmware-staging
-          ./fbt fap_proto_pirate_tx
+          ./fbt fap_protopirate_tx
 
       - name: Upload fap artifact
         uses: actions/upload-artifact@v4
         with:
           name: protopirate_tx
-          path: firmware-staging/build/f7-firmware-D/applications_user/protopirate_tx/proto_pirate_tx.fap
-          compression-level: 0
+          path: flipperzero-firmware/build/**/*.fap
+          if-no-files-found: error
