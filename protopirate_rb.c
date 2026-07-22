@@ -240,7 +240,7 @@ void scene_info_alloc(ProtoPirateApp* app) {
 }
 
 // ===================== 主入口 =====================
-int32_t app_main(void* p) {
+int32_t app_main(void* p) __attribute__((visibility("default"))) {
     UNUSED(p);
     ProtoPirateApp* app = protoPirateApp_alloc();
 
