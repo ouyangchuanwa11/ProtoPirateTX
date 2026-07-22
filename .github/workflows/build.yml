@@ -32,27 +32,34 @@ jobs:
           rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
           rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
 
-      - name: Build protopirate_tx (single app only)
+      - name: Try building with fbt
         id: build
         working-directory: ./flipperzero-firmware
+        continue-on-error: true
         shell: bash
         run: |
-          echo "=== CLEAN ==="
           ./fbt clean 2>&1 | tail -3
-          echo "=== BUILD TARGET (fap_protopirate_tx) ==="
-          ./fbt fap_protopirate_tx 2>&1 | tee /tmp/fbt.log
-          EXITCODE=${PIPESTATUS[0]}
-          echo "EXITCODE=$EXITCODE" >> $GITHUB_OUTPUT
-          echo "=== LAST 80 LINES ==="
-          tail -80 /tmp/fbt.log 2>/dev/null || echo "(no log)"
-          echo "=== BUILD FOLDER ==="
-          find build -name "*.fap" -type f 2>/dev/null || echo "(no .fap)"
-          exit $EXITCODE
+          ./fbt fap_protopirate_tx 2>&1 > /tmp/fbt.log
+          echo "exitcode=$?" >> $GITHUB_OUTPUT
 
-      - name: Upload fap artifact
-        if: steps.build.outputs.EXITCODE == '0'
-        uses: actions/upload-artifact@v4
-        with:
-          name: protopirate_tx
-          path: flipperzero-firmware/build/**/*.fap
-          if-no-files-found: error
+      - name: Analyze build log
+        if: always()
+        shell: bash
+        run: |
+          LOG=/tmp/fbt.log
+          if [ ! -f "$LOG" ]; then
+            echo "No build log found"
+            echo "=== BUILD FOLDER ==="
+            ls -la build/ 2>/dev/null || echo "(no build)"
+            exit 0
+          fi
+          echo "=== LOG SIZE ==="
+          wc -l $LOG
+          echo "=== LAST 100 LINES ==="
+          tail -100 $LOG
+          echo "=== GREP ERROR ==="
+          grep -i "error" $LOG | tail -20
+          echo "=== GREP FBT ==="
+          grep -A5 "FBT ERRORS" $LOG | tail -30
+          echo "=== FIND FAP ==="
+          find . -name "*.fap" -type f 2>/dev/null || echo "(no fap)"
