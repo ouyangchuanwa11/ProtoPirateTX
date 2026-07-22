@@ -36,7 +36,7 @@ jobs:
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          ./fbt --extra-ext-apps=protopirate_tx fap_dist
+          ./fbt  fap_dist
 
       - name: List build output
         working-directory: ./flipperzero-firmware
