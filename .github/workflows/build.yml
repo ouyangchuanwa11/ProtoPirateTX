@@ -38,11 +38,18 @@ jobs:
         run: |
           ./fbt clean && ./fbt --extra-ext-apps=protopirate_tx fap_dist
 
-      - name: List build output
+      - name: List build output (with debug)
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
+          echo "=== Build output ==="
           find build -name "*.fap" -type f 2>/dev/null || true
+          echo "=== Last 30 lines of build log (looking for errors) ==="
+          # Check if there are fbt error artifacts
+          find build -name "*.log" -o -name "*.err" 2>/dev/null | head -5 || true
+          echo "=== Searching for compilation errors in build directory ==="
+          grep -r "FBT ERRORS\|rror:" build/ 2>/dev/null | tail -30 || true
+          echo "=== Done ==="
 
       - name: Upload fap artifact
         uses: actions/upload-artifact@v4
