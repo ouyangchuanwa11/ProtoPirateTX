@@ -1,8 +1,7 @@
 #include "protopirate_rb.h"
 
 // ===================== TX ???? =====================
-// TX????????,?????,?????
-// ??Momentum????? furi_hal_subghz API
+// TX????????,?? furi_hal_subghz API
 
 bool transmit_raw(
     ProtoPirateApp* app,
@@ -13,11 +12,11 @@ bool transmit_raw(
         FURI_LOG_E(TAG, "transmit_raw: invalid params");
         return false;
     }
+    UNUSED(raw_data);
     FURI_LOG_I(TAG, "TX RAW: freq=%lu repeats=%u", freq, repeats);
 
     furi_hal_subghz_set_path(FuriHalSubGhzPathIsolate);
     furi_hal_subghz_reset();
-    furi_hal_subghz_load_preset(FuriHalSubGhzPresetOok650Async);
     furi_hal_subghz_set_frequency(freq);
 
     for(uint8_t b = 0; b < repeats; b++) {
@@ -45,7 +44,6 @@ bool transmit_packet(
 
     furi_hal_subghz_set_path(FuriHalSubGhzPathIsolate);
     furi_hal_subghz_reset();
-    furi_hal_subghz_load_preset(FuriHalSubGhzPresetOok650Async);
     furi_hal_subghz_set_frequency(freq);
     furi_delay_ms(50);
 
@@ -55,7 +53,6 @@ bool transmit_packet(
         furi_hal_subghz_idle();
         furi_delay_ms(30);
     }
-
     FURI_LOG_I(TAG, "TX PACKET: complete");
     return true;
 }
@@ -64,7 +61,6 @@ void transmit_start(ProtoPirateApp* app, uint32_t freq) {
     UNUSED(app);
     furi_hal_subghz_set_path(FuriHalSubGhzPathIsolate);
     furi_hal_subghz_reset();
-    furi_hal_subghz_load_preset(FuriHalSubGhzPresetOok650Async);
     furi_hal_subghz_set_frequency(freq);
     FURI_LOG_I(TAG, "TX START: freq=%lu", freq);
 }

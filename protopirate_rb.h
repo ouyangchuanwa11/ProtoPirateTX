@@ -135,6 +135,9 @@ DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data);
 // TX(??????)
 bool transmit_raw(ProtoPirateApp* app, FuriString* raw_data, uint32_t freq, uint8_t repeats);
 bool transmit_packet(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo, uint32_t freq, uint8_t repeats);
+void transmit_start(ProtoPirateApp* app, uint32_t freq);
+void transmit_burst(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo);
+void transmit_stop(ProtoPirateApp* app);
 
 // RollBack??
 bool rollback_attack_run(ProtoPirateApp* app);
