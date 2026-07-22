@@ -1,4 +1,4 @@
-name: Build ProtoPirateTX FAP
+﻿name: Build ProtoPirateTX FAP
 
 on:
   push:
@@ -36,9 +36,15 @@ jobs:
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          ./fbt clean && ./fbt --extra-ext-apps=protopirate_tx fap_dist
+          set +e
+          ./fbt clean 2>&1 || true
+          ./fbt --extra-ext-apps=protopirate_tx fap_dist 2>&1
+          EXITCODE=$?
+          echo "=== FBT EXIT CODE: $EXITCODE ==="
+          exit $EXITCODE
 
       - name: List build output (with debug)
+        if: always()
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
@@ -57,3 +63,4 @@ jobs:
           name: protopirate_tx
           path: flipperzero-firmware/build/**/*.fap
           if-no-files-found: error
+
