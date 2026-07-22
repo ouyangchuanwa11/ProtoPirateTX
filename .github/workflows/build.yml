@@ -27,7 +27,6 @@ jobs:
       - name: Copy our app and nuke others
         shell: bash
         run: |
-          # Remove ALL external apps except ours
           rm -rf flipperzero-firmware/applications/external
           rm -rf flipperzero-firmware/applications_user
           mkdir -p flipperzero-firmware/applications_user/protopirate_tx
@@ -41,35 +40,10 @@ jobs:
         run: |
           rm -rf build
           ./fbt fap_dist 2>&1
-        continue-on-error: true
-
-      - name: Debug - show link commands
-        if: always()
-        working-directory: ./flipperzero-firmware
-        shell: bash
-        run: |
-          echo "=== protopirate_tx link errors ==="
-          grep -n -E "gc.sections|undefined|collect2|ld returned|protopirate.*error" build/fbt.log 2>/dev/null | tail -20 || echo "No fbt.log"
-          lines=$(cat build/fbt.log 2>/dev/null | wc -l) && echo "fbt.log has $lines lines"
-          echo "=== last 30 lines ==="
-          tail -30 build/fbt.log 2>/dev/null || echo "fbt.log not found"
-
-      - name: Debug - show link commands
-        if: always()
-        working-directory: ./flipperzero-firmware
-        shell: bash
-        run: |
-          # Show any error from the build
-          echo "=== Looking for errors in build log ==="
-          grep -n -E "gc.sections|undefined|LINK.*protopirate|Error|error:" build/fbt.log 2>/dev/null | tail -30 || echo "No matching patterns found"
-          echo "=== Build log tail (last 100 lines) ==="
-          tail -100 build/fbt.log 2>/dev/null || echo "fbt.log not found"
-          echo "=== fbt cmd log ==="
-          fbt_log=$(ls build/fbt*.log 2>/dev/null | head -1) && tail -50 "$fbt_log" || echo "No cmd log found"
 
       - name: Upload fap artifact
         uses: actions/upload-artifact@v4
         with:
           name: protopirate_tx
-          path: flipperzero-firmware/build/**/*.fap
+          path: flipperzero-firmware/dist/**/*.fap
           if-no-files-found: error
