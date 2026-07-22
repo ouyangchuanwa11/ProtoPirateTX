@@ -1,6 +1,6 @@
 #include "protopirate_rb.h"
 
-// ===================== ?????? =====================
+// ===================== 按钮菜单回调 =====================
 static void result_button_callback(void* context, int32_t index, InputType type) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(type != InputTypePress) return;
@@ -25,7 +25,7 @@ static uint32_t navigation_callback(void* context) {
     return 0;
 }
 
-// ===================== ?????? =====================
+// ===================== 应用生命周期 =====================
 ProtoPirateApp* protoPirateApp_alloc(void) {
     ProtoPirateApp* app = malloc(sizeof(ProtoPirateApp));
     app->gui = furi_record_open(RECORD_GUI);
@@ -79,7 +79,7 @@ void protoPirateApp_free(ProtoPirateApp* app) {
     free(app);
 }
 
-// ===================== ??: ??? =====================
+// ===================== 场景: 主菜单 =====================
 static void scene_main_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     app->submenu_index = index;
@@ -109,7 +109,7 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
     view_dispatcher_add_view(app->view_dispatcher, 0, submenu_get_view(app->submenu));
 }
 
-// ===================== ??: ?? =====================
+// ===================== 场景: 接收 =====================
 void scene_receive_alloc(ProtoPirateApp* app) {
     UNUSED(app);
 }
@@ -121,13 +121,13 @@ void scene_receive_enter(ProtoPirateApp* app) {
     widget_add_string_element(app->widget, 64, 25, AlignCenter, AlignTop, FontSecondary,
                               "Waiting...");
 
-    // ????: 5???
+    // 模拟接收: 5秒超时
     uint32_t timeout = furi_get_tick() + 5000;
     while(furi_get_tick() < timeout) {
         furi_delay_ms(50);
     }
 
-    // ??????
+    // 模拟解码结果
     app->last_result.bits = 64;
     app->last_result.serial = 0x1234567;
     app->last_result.button = 2;
@@ -140,7 +140,7 @@ void scene_receive_enter(ProtoPirateApp* app) {
     app->scene = SceneResult;
 }
 
-// ===================== ??: ?? =====================
+// ===================== 场景: 结果 =====================
 void scene_result_alloc(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 2, AlignCenter, AlignTop, FontPrimary,
@@ -177,7 +177,7 @@ void scene_result_enter(ProtoPirateApp* app) {
     button_menu_set_selected_item(app->button_menu, 0);
 }
 
-// ===================== ??: RollBack?? =====================
+// ===================== 场景: RollBack攻击 =====================
 void scene_rollback_alloc(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 2, AlignCenter, AlignTop, FontPrimary,
@@ -197,7 +197,7 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
                               "BACK = Menu");
 }
 
-// ===================== ??: ?? =====================
+// ===================== 场景: 重放 =====================
 void scene_replay_alloc(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 5, AlignCenter, AlignTop, FontPrimary,
@@ -216,7 +216,7 @@ void scene_replay_alloc(ProtoPirateApp* app) {
     }
 }
 
-// ===================== ??: ???? =====================
+// ===================== 场景: 频率选择 =====================
 void scene_freq_select_alloc(ProtoPirateApp* app) {
     variable_item_list_reset(app->var_item_list);
     variable_item_list_set_enter_callback(app->var_item_list, NULL, app);
@@ -226,7 +226,7 @@ void scene_freq_select_alloc(ProtoPirateApp* app) {
     variable_item_list_add(app->var_item_list, "868.35 MHz (EU)", 0, NULL, NULL);
 }
 
-// ===================== ??: ?? =====================
+// ===================== 场景: 信息 =====================
 void scene_info_alloc(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 2, AlignCenter, AlignTop, FontPrimary,
@@ -239,8 +239,8 @@ void scene_info_alloc(ProtoPirateApp* app) {
                               "RollBack Attack Engine");
 }
 
-// ===================== ??? =====================
-int32_t protopirate_rb_app_entry(void* p) {
+// ===================== 主入口 =====================
+int32_t app_main(void* p) {
     UNUSED(p);
     ProtoPirateApp* app = protoPirateApp_alloc();
 
