@@ -39,7 +39,7 @@ jobs:
           echo "=== CLEAN ==="
           ./fbt clean 2>&1 | tail -3 || true
           echo "=== FBT BUILD START ==="
-          ./fbt --extra-ext-apps=protopirate_tx fap_dist 2>&1
+          ./fbt fap_protopirate_tx 2>&1
           EXITCODE=$?
           echo "=== FBT EXIT CODE: $EXITCODE ==="
           echo "=== GREP ERRORS ==="
