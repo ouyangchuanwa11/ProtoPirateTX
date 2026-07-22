@@ -104,7 +104,7 @@ typedef enum {
 // ============ 函数声明 ============
 ProtoPirateApp* protoPirateApp_alloc(void);
 void protoPirateApp_free(ProtoPirateApp* app);
-int32_t app_main(void* p);
+int32_t app_main(void* p) __attribute__((visibility("default")));
 
 // 菜单
 void scene_main_menu_alloc(ProtoPirateApp* app);
