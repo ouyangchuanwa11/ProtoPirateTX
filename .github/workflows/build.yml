@@ -36,7 +36,7 @@ jobs:
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          rm -rf build && ./fbt fap_protopirate_tx
+          ./fbt clean && ./fbt fap_dist
 
       - name: List build output
         working-directory: ./flipperzero-firmware
