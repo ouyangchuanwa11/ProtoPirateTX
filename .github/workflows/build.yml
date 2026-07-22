@@ -1,0 +1,39 @@
+name: Build ProtoPirateTX
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git make cmake gcc-arm-none-eabi libstdc++-arm-none-eabi-newlib python3-pip
+          pip3 install --user flipperzero-fbt
+
+      - name: Clone Momentum firmware
+        run: |
+          git clone --recursive --depth=1 https://github.com/Next-Flip/Momentum-Firmware.git firmware-staging
+          rm -rf firmware-staging/applications_user/protopirate_tx
+          cp -r $GITHUB_WORKSPACE firmware-staging/applications_user/protopirate_tx
+
+      - name: Build fap
+        run: |
+          cd firmware-staging
+          ./fbt fap_proto_pirate_tx
+
+      - name: Upload fap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: protopirate_tx
+          path: firmware-staging/build/f7-firmware-D/applications_user/protopirate_tx/proto_pirate_tx.fap
+          compression-level: 0
