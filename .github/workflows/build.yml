@@ -32,22 +32,21 @@ jobs:
           rm -f flipperzero-firmware/applications_user/protopirate_tx/flipperzero-firmware 2>/dev/null || true
           rm -f flipperzero-firmware/applications_user/protopirate_tx/.github 2>/dev/null || true
 
-      - name: Build fap
+      - name: Build fap and save logs
         working-directory: ./flipperzero-firmware
         shell: bash
         run: |
-          echo "=== CLEAN ==="
+          set -o pipefail
           ./fbt clean 2>&1 | tail -3 || true
           echo "=== FBT BUILD START ==="
-          ./fbt fap_protopirate_tx 2>&1
-          EXITCODE=$?
+          ./fbt fap_protopirate_tx 2>&1 | tee /tmp/fbt_build.log
+          EXITCODE=${PIPESTATUS[0]}
           echo "=== FBT EXIT CODE: $EXITCODE ==="
-          echo "=== GREP ERRORS ==="
-          grep -r "FBT ERRORS" build/ -A 5 --include="*.o" 2>/dev/null | head -20 || echo "(no .o)"
-          grep -r "error:" build/ --include="*.o" 2>/dev/null | head -20 || echo "(no errors in .o)"
           echo "=== LIST .fap ==="
           find build -name "*.fap" -type f 2>/dev/null || echo "(no .fap)"
-          echo "=== DIAG END ==="
+          echo "=== LAST 80 LINES ==="
+          tail -80 /tmp/fbt_build.log
+          echo "=== END BUILD DIAG ==="
           exit $EXITCODE
 
       - name: Debug output
@@ -57,7 +56,10 @@ jobs:
         run: |
           echo "=== Any fap files ==="
           find build -name "*.fap" -type f 2>/dev/null || echo "(none)"
-          echo "=== GH Actions step 5 should have the real errors ==="
+          echo "=== Build folder contents ==="
+          find build -path "*/protopirate*" -type f 2>/dev/null | head -20 || echo "(no protopirate in build)"
+          echo "=== Build folder tree (clean) ==="
+          find build -maxdepth 4 -type d 2>/dev/null | head -20 || echo "(no build folder)"
 
       - name: Upload fap artifact
         if: success()
