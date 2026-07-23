@@ -171,6 +171,8 @@ void transmit_packet_nonblock(ProtoPirateApp* app, uint32_t data_hi, uint32_t da
 void transmit_start(ProtoPirateApp* app, uint32_t freq);
 void transmit_burst(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo);
 void transmit_stop(ProtoPirateApp* app);
+void transmit_packet_stop(ProtoPirateApp* app);
+void transmit_packet_wait(ProtoPirateApp* app);
 
 // RollBack引擎
 bool rollback_attack_run(ProtoPirateApp* app);
