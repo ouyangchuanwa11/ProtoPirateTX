@@ -12,11 +12,11 @@ static void result_button_callback(void* context, int32_t index, InputType type)
             app->last_result.data_lo, app->frequency, 3);
         break;
     case 1: // Send x5
-        transmit_packet_nonblock(app, app->last_result.data_hi,
+        transmit_packet(app, app->last_result.data_hi,
             app->last_result.data_lo, app->frequency, 5);
         break;
     case 2: // Send x10
-        transmit_packet_nonblock(app, app->last_result.data_hi,
+        transmit_packet(app, app->last_result.data_hi,
             app->last_result.data_lo, app->frequency, 10);
         break;
     case 3: // Back to menu
@@ -48,13 +48,13 @@ static void replay_menu_callback(void* context, uint32_t index) {
     switch(index) {
     case 0: // Replay Car Signal
         if(app->last_result.bits > 0) {
-            transmit_packet_nonblock(app, app->last_result.data_hi,
+            transmit_packet(app, app->last_result.data_hi,
                 app->last_result.data_lo, app->frequency, 5);
         } else {
             // No captured signal, use demo
             uint32_t hi, lo;
             rollback_build_frame(0x1234567, 2, 0x100, &hi, &lo);
-            transmit_packet_nonblock(app, hi, lo, app->frequency, 5);
+            transmit_packet(app, hi, lo, app->frequency, 5);
         }
         break;
     case 1: // Return to menu
@@ -259,11 +259,6 @@ void scene_receive_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "Capture Signal");
 
-    char freq_str[40];
-    snprintf(freq_str, sizeof(freq_str), "  Capture @ %lu.%lu MHz",
-             app->frequency / 1000000,
-             (app->frequency % 1000000) / 1000);
-    submenu_add_item(app->submenu, freq_str, 0, scene_main_menu_callback, app);
     submenu_add_item(app->submenu, "  >> Capture Now <<", 0, receive_menu_callback, app);
     submenu_add_item(app->submenu, "  Back to Menu", 1, receive_menu_callback, app);
 
@@ -297,12 +292,10 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
 
     char line[40];
     snprintf(line, sizeof(line), "  Sn:0x%07lX Btn:%u", app->rollback.serial, app->rollback.button);
-    submenu_add_item(app->submenu, line, 0, scene_main_menu_callback, app);
-
+    
     snprintf(line, sizeof(line), "  Cnt:%u->%u Step:%u",
              app->rollback.base_counter, app->rollback.target_counter, app->rollback.step_size);
-    submenu_add_item(app->submenu, line, 0, scene_main_menu_callback, app);
-
+    
     if(app->rollback.running) {
         snprintf(line, sizeof(line), "  >> ATTACK: %u/%u <<",
                  app->rollback.current_counter, app->rollback.target_counter);
@@ -322,7 +315,7 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
             uint32_t dhi, dlo;
             rollback_build_frame(app->rollback.serial, app->rollback.button,
                                (uint32_t)app->rollback.current_counter, &dhi, &dlo);
-            transmit_packet_nonblock(app, dhi, dlo, app->frequency, 3);
+            transmit_packet(app, dhi, dlo, app->frequency, 3);
 
             app->rollback.current_counter += app->rollback.step_size;
 
@@ -345,12 +338,10 @@ void scene_replay_alloc(ProtoPirateApp* app) {
         char line[40];
         snprintf(line, sizeof(line), "  %s Sn:0x%lX",
                  app->last_result.proto, app->last_result.serial);
-        submenu_add_item(app->submenu, line, 0, scene_main_menu_callback, app);
-
+        
         submenu_add_item(app->submenu, "  >> Replay Now <<", 0, replay_menu_callback, app);
     } else {
-        submenu_add_item(app->submenu, "  No captured signal", 0, scene_main_menu_callback, app);
-        submenu_add_item(app->submenu, "  >> Send Demo Frame <<", 0, replay_menu_callback, app);
+                submenu_add_item(app->submenu, "  >> Send Demo Frame <<", 0, replay_menu_callback, app);
     }
 
     submenu_add_item(app->submenu, "  Back to Menu", 1, replay_menu_callback, app);
