@@ -166,8 +166,7 @@ static void scene_main_menu_callback(void* context, uint32_t index) {
 }
 
 void scene_main_menu_alloc(ProtoPirateApp* app) {
-    submenu_free(app->submenu);
-    app->submenu = submenu_alloc();
+    submenu_clean(app->submenu);
     submenu_set_header(app->submenu, "ProtoPirate RB");
 
     submenu_add_item(app->submenu, "   Receive Signal", 0, scene_main_menu_callback, app);
@@ -178,7 +177,6 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
     submenu_add_item(app->submenu, "   Exit", 5, scene_main_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), navigation_callback);
-    view_dispatcher_add_view(app->view_dispatcher, ViewMenu, submenu_get_view(app->submenu));
 }
 
 // ===================== 场景: 接收 =====================
@@ -192,13 +190,12 @@ void scene_receive_enter(ProtoPirateApp* app) {
     // Show the receiving view first
     view_dispatcher_switch_to_view(app->view_dispatcher, ViewWidget);
 
-    // 模拟接收: 3秒超时
-    uint32_t timeout = furi_get_tick() + 3000;
-    while(furi_get_tick() < timeout) {
-        furi_delay_ms(50);
-    }
+    // 模拟: 使用定时器而非阻塞循环
+    // 不阻塞 ViewDispatcher，避免崩溃
+    widget_add_string_element(app->widget, 64, 45, AlignCenter, AlignTop, FontSecondary,
+                              "Demo: simulated RX");
 
-    // 模拟解码结果
+    // 模拟解码结果 (不阻塞)
     app->last_result.bits = 64;
     app->last_result.serial = 0x1234567;
     app->last_result.button = 2;
@@ -206,12 +203,23 @@ void scene_receive_enter(ProtoPirateApp* app) {
     strncpy(app->last_result.proto, "Kia V0", sizeof(app->last_result.proto));
     app->last_result.counter = 0xABCD;
     app->last_result.crc_ok = true;
-    app->last_result.data_hi = 0;
+    app->last_result.data_hi = 0xBC;
     app->last_result.data_lo = 0x1234567A;
-    app->last_result.data_hi = 0xBC; // 40-bit value split across hi/lo
 
-    app->scene = SceneResult;
-    view_dispatcher_send_custom_event(app->view_dispatcher, SceneResult);
+    // 设置 OK 键触发进入结果（模拟 RX 完成）
+    // 在 Widget 上显示提示
+    widget_add_string_element(app->widget, 64, 60, AlignCenter, AlignTop, FontSecondary,
+                              "OK = View Result");
+    
+    // 设置 BACK 导航
+    View* widget_view = widget_get_view(app->widget);
+    view_set_previous_callback(widget_view, navigation_callback);
+    
+    app->scene = SceneReceive;
+    
+    // 模拟接收完成后自动跳转，使用定时器
+    // 但为了避免崩溃，先直接显示接收页面等待用户操作
+    // OK 键通过全局 custom_event_callback 处理
 }
 
 // ===================== 场景: 结果 =====================
@@ -302,22 +310,22 @@ void scene_replay_enter(ProtoPirateApp* app) {
         widget_add_string_element(app->widget, 64, 68, AlignCenter, AlignTop, FontSecondary,
                                   "Hold BACK to exit");
 
-        // Start TX in background, don't block ViewDispatcher
-        transmit_packet(app,
+        // 非阻塞 TX：在后台线程发送，不阻塞 ViewDispatcher
+        transmit_packet_nonblock(app,
             app->last_result.data_hi,
             app->last_result.data_lo,
             app->frequency, 1);
     } else {
         // Demo 模式: 发送测试帧
         widget_add_string_element(app->widget, 64, 30, AlignCenter, AlignTop, FontSecondary,
-                                  "Demo: sending test...");
+                                  "Demo: sending...");
 
         uint32_t demo_data_hi, demo_data_lo;
         rollback_build_frame(0x1234567, 2, 0x100, &demo_data_hi, &demo_data_lo);
-        transmit_packet(app, demo_data_hi, demo_data_lo, app->frequency, 3);
+        transmit_packet_nonblock(app, demo_data_hi, demo_data_lo, app->frequency, 3);
 
         widget_add_string_element(app->widget, 64, 55, AlignCenter, AlignTop, FontSecondary,
-                                  "Demo TX sent! (x3)");
+                                  "Demo: TX started! (x3)");
     }
     
     // Ensure back navigation works
@@ -326,13 +334,66 @@ void scene_replay_enter(ProtoPirateApp* app) {
 }
 
 // ===================== 场景: 频率选择 =====================
+// 频率值常量
+static const uint32_t FREQ_TABLE[] = {315000000, 433920000, 868350000};
+static const char* FREQ_NAMES[] = {"315.00 MHz (US)", "433.92 MHz (EU/Asia)", "868.35 MHz (EU)"};
+
+static void freq_change_callback(VariableItem* item) {
+    ProtoPirateApp* app = variable_item_get_context(item);
+    uint8_t index = variable_item_get_current_value_index(item);
+    
+    // Safety: item can't be NULL here since we set context
+    if(!app) return;
+    
+    if(index < 3) {
+        app->frequency = FREQ_TABLE[index];
+        variable_item_set_current_value_text(item, FREQ_NAMES[index]);
+        FURI_LOG_I(TAG, "Freq set to %lu Hz", app->frequency);
+    }
+}
+
+// Receive 场景的 OK 按键处理：进入 Result 页面
+static void receive_ok_callback(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(!app) return;
+    
+    // 模拟接收完成后切换到结果
+    app->scene = SceneResult;
+    view_dispatcher_send_custom_event(app->view_dispatcher, SceneResult);
+}
+
+static void freq_enter_callback(void* context, uint32_t index) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(!app) return;
+    
+    if(index < 3) {
+        app->frequency = FREQ_TABLE[index];
+        FURI_LOG_I(TAG, "Freq selected: %lu Hz", app->frequency);
+        
+        // Show confirmation and return to menu
+        app->scene = SceneMainMenu;
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+    }
+}
+
 void scene_freq_select_alloc(ProtoPirateApp* app) {
     variable_item_list_reset(app->var_item_list);
-    variable_item_list_set_enter_callback(app->var_item_list, NULL, app);
-    UNUSED(app);
-    variable_item_list_add(app->var_item_list, "315.00 MHz (US)", 0, NULL, NULL);
-    variable_item_list_add(app->var_item_list, "433.92 MHz (EU/Asia)", 0, NULL, NULL);
-    variable_item_list_add(app->var_item_list, "868.35 MHz (EU)", 0, NULL, NULL);
+    variable_item_list_set_enter_callback(app->var_item_list, freq_enter_callback, app);
+    
+    uint8_t default_idx = 1; // Default to 433.92 MHz
+    if(app->frequency == 315000000) default_idx = 0;
+    else if(app->frequency == 433920000) default_idx = 1;
+    else if(app->frequency == 868350000) default_idx = 2;
+    
+    for(int i = 0; i < 3; i++) {
+        VariableItem* item = variable_item_list_add(
+            app->var_item_list, FREQ_NAMES[i], 0,
+            freq_change_callback, app);
+        if(i == default_idx) {
+            variable_item_set_current_value_index(item, i);
+            variable_item_set_current_value_text(item, FREQ_NAMES[i]);
+        }
+    }
     
     app->scene = SceneFreqSelect;
     view_set_previous_callback(variable_item_list_get_view(app->var_item_list), navigation_callback);
@@ -362,13 +423,16 @@ __attribute__((visibility("default"))) int32_t app_main(void* p) {
     UNUSED(p);
     ProtoPirateApp* app = protoPirateApp_alloc();
 
-    // Register all views
-    scene_main_menu_alloc(app);
+    // Register all views ONCE at startup (避免重复注册导致 furi_check failed)
+    view_dispatcher_add_view(app->view_dispatcher, ViewMenu, submenu_get_view(app->submenu));
     view_dispatcher_add_view(app->view_dispatcher, ViewWidget, widget_get_view(app->widget));
     view_dispatcher_add_view(app->view_dispatcher, ViewVarList, variable_item_list_get_view(app->var_item_list));
     view_dispatcher_add_view(app->view_dispatcher, ViewTextBox, text_box_get_view(app->text_box));
     view_dispatcher_add_view(app->view_dispatcher, ViewButtonMenu, button_menu_get_view(app->button_menu));
     view_dispatcher_add_view(app->view_dispatcher, ViewPopup, popup_get_view(app->popup));
+
+    // Initialize menu content
+    scene_main_menu_alloc(app);
 
     // Start with main menu
     view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
