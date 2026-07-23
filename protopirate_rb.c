@@ -138,10 +138,7 @@ static bool custom_event_callback(void* context, uint32_t event) {
 static uint32_t back_to_menu_callback(void* context) {
     UNUSED(context);
     // Return to main menu view
-    view_dispatcher_send_custom_event(
-        ((ProtoPirateApp*)context) ? ((ProtoPirateApp*)context)->view_dispatcher : NULL,
-        EventGoMenu);
-    return VIEW_NONE;
+    return ViewMenu;
 }
 
 // ===================== Nav Event Callback (global) =====================
