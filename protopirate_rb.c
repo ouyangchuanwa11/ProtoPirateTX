@@ -30,6 +30,7 @@ static uint32_t back_to_menu_callback(void* context) {
 }
 
 static uint32_t back_to_menu_or_exit_callback(void* context) {
+    UNUSED(context);
     // 如果是主菜单就退出，否则回主菜单
     // 这个回调只绑定在 submenu 上
     return ViewMenu;
@@ -207,7 +208,7 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
 
 
 // 构建 RKE 帧 (通用格式: serial(28bit) + button(4bit) + counter(16bit) + checksum(16bit) = 64bit)
-static void rollback_build_frame(
+void rollback_build_frame(
     uint32_t serial, uint8_t button, uint32_t counter,
     uint32_t* data_hi, uint32_t* data_lo) {
 
@@ -340,8 +341,8 @@ static void rollback_tx_burst(ProtoPirateApp* app) {
 
     // 更新日志
     FURI_LOG_I(TAG, "RB: cnt=0x%04lX target=0x%04lX diff=%ld",
-               (uint32_t)app->rollback.current_counter,
-               app->rollback.target_counter, (long)diff);
+               (unsigned long)app->rollback.current_counter,
+               (unsigned long)app->rollback.target_counter, (long)diff);
 
     // 步进计数器
     app->rollback.current_counter += app->rollback.step_size;
