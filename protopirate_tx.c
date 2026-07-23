@@ -12,43 +12,39 @@
 // Async TX 回调数据
 typedef struct {
     uint32_t data[2];       // data_hi, data_lo
-    uint8_t bit_pos;        // current bit position (0=first bit)
-    uint8_t byte_pos;       // byte-level position
-    uint32_t repeat_pos;    // repeat index
-    uint8_t repeats;        // total repeats
-    uint8_t phase;          // 0=carrier_on, 1=carrier_off, 2=bit, 3=gap
+    uint8_t bit_pos;
+    uint8_t byte_pos;
+    uint32_t repeat_pos;
+    uint8_t repeats;
+    uint8_t phase;          // 0=preamble_on, 1=preamble_off, 2=bit, 3=gap
     bool sending;
 } TxState;
 
 static TxState tx_state;
 
 // OOK 650kHz 调制参数
-// 对于 Kia V0 协议 (HiTag2-like)：
-// 逻辑 1: ~560us ON + ~280us OFF
-// 逻辑 0: ~280us ON + ~560us OFF
-// 帧间隔: ~10ms OFF
 #define BIT1_ON  560
 #define BIT1_OFF 280
 #define BIT0_ON  280
 #define BIT0_OFF 560
-#define PRE_ON   8000   // 8ms 前导载波
-#define PRE_OFF  4000   // 4ms 间隔
-#define FRAME_GAP 12000 // 帧间隔
+#define PRE_ON   8000
+#define PRE_OFF  4000
+#define FRAME_GAP 12000
 
 static LevelDuration tx_callback(void* context) {
     UNUSED(context);
 
     if(!tx_state.sending) {
-        return LevelDurationEnd();
+        return level_duration_reset(); // End signal: send reset (was LevelDurationEnd)
     }
 
-    // 阶段 0: 前导载波 (ON)
+    // Phase 0: Preamble carrier ON
     if(tx_state.phase == 0) {
         tx_state.phase = 1;
         return level_duration_make(true, PRE_ON);
     }
 
-    // 阶段 1: 前导间隔 (OFF)
+    // Phase 1: Preamble gap OFF
     if(tx_state.phase == 1) {
         tx_state.phase = 2;
         tx_state.bit_pos = 0;
@@ -56,20 +52,19 @@ static LevelDuration tx_callback(void* context) {
         return level_duration_make(false, PRE_OFF);
     }
 
-    // 阶段 2: 发送数据 bit + gap
+    // Phase 2: Data bits
     if(tx_state.bit_pos < 64) {
-        // Select the correct word
         uint32_t word = (tx_state.bit_pos < 32) ? tx_state.data[0] : tx_state.data[1];
         uint8_t bit_offset = (tx_state.bit_pos < 32) ? (31 - tx_state.bit_pos) : (63 - tx_state.bit_pos);
         uint8_t bit = (word >> bit_offset) & 1;
 
         if(tx_state.byte_pos == 0) {
-            // Send ON time for this bit
+            // ON time
             tx_state.byte_pos = 1;
             if(bit) return level_duration_make(true, BIT1_ON);
             else    return level_duration_make(true, BIT0_ON);
         } else {
-            // Send OFF time (gap) for this bit
+            // OFF time (gap)
             tx_state.byte_pos = 0;
             tx_state.bit_pos++;
             if(bit) return level_duration_make(false, BIT1_OFF);
@@ -77,12 +72,11 @@ static LevelDuration tx_callback(void* context) {
         }
     }
 
-    // All 64 bits sent for this frame
+    // All 64 bits done
     tx_state.repeat_pos++;
     if(tx_state.repeat_pos >= tx_state.repeats) {
-        // All repeats done
         tx_state.sending = false;
-        return LevelDurationEnd();
+        return level_duration_reset(); // End signal
     }
 
     // Frame gap before next repeat
@@ -170,7 +164,6 @@ void transmit_start(ProtoPirateApp* app, uint32_t freq) {
 void transmit_burst(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo) {
     UNUSED(app);
 
-    // If async TX still running, stop it first
     if(!furi_hal_subghz_is_async_tx_complete()) {
         furi_hal_subghz_stop_async_tx();
     }
@@ -196,7 +189,6 @@ void transmit_burst(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo) {
 
     furi_hal_subghz_stop_async_tx();
     furi_hal_subghz_idle();
-    furi_delay_ms(10);
 }
 
 void transmit_stop(ProtoPirateApp* app) {
