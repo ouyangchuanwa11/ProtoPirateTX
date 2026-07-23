@@ -1,9 +1,9 @@
 #include "protopirate_rb.h"
 
-// ===================== 按钮回调 =====================
-static void result_button_callback(void* context, int32_t index, InputType type) {
+// ===================== 按钮回调 (SubmenuItemCallback: void(context, uint32_t)) =====================
+static void result_button_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-    if(!app || type != InputTypePress) return;
+    if(!app) return;
 
     switch(index) {
     case 0: // Send x3
@@ -24,9 +24,9 @@ static void result_button_callback(void* context, int32_t index, InputType type)
     }
 }
 
-static void rollback_menu_callback(void* context, int32_t index, InputType type) {
+static void rollback_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-    if(!app || type != InputTypePress) return;
+    if(!app) return;
 
     switch(index) {
     case 0: // Start RollBack Attack
@@ -40,9 +40,9 @@ static void rollback_menu_callback(void* context, int32_t index, InputType type)
     }
 }
 
-static void replay_menu_callback(void* context, int32_t index, InputType type) {
+static void replay_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-    if(!app || type != InputTypePress) return;
+    if(!app) return;
 
     switch(index) {
     case 0: // Replay Car Signal
@@ -62,9 +62,9 @@ static void replay_menu_callback(void* context, int32_t index, InputType type) {
     }
 }
 
-static void receive_menu_callback(void* context, int32_t index, InputType type) {
+static void receive_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-    if(!app || type != InputTypePress) return;
+    if(!app) return;
 
     switch(index) {
     case 0: // Capture Signal
@@ -78,6 +78,7 @@ static void receive_menu_callback(void* context, int32_t index, InputType type) 
         app->last_result.crc_ok = true;
         rollback_build_frame(0x1234567, 2, 0xABCD,
             &app->last_result.data_hi, &app->last_result.data_lo);
+
         // Save to rollback params
         app->rollback.serial = app->last_result.serial;
         app->rollback.button = app->last_result.button;
@@ -229,7 +230,7 @@ static void scene_main_menu_callback(void* context, uint32_t index) {
     case 3: event = EventFreqSelect; break;
     case 4: event = EventInfo; break;
     case 5:
-        // Exit - this triggers furi_check failed if views are misconfigured
+        // Exit
         view_dispatcher_stop(app->view_dispatcher);
         return;
     default: return;
@@ -249,13 +250,11 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
     submenu_add_item(app->submenu, "  About", 4, scene_main_menu_callback, app);
     submenu_add_item(app->submenu, "  EXIT", 5, scene_main_menu_callback, app);
 
-    // IMPORTANT: Set previous callback to VIEW_NONE so BACK works
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
 // ===================== Capture Signal（菜单页） =====================
 void scene_receive_alloc(ProtoPirateApp* app) {
-    // Use submenu instead of widget for actionable buttons
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "Capture Signal");
 
@@ -319,16 +318,13 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
     if(app->rollback.running) {
         int32_t diff = (int32_t)app->rollback.target_counter - app->rollback.current_counter;
         if(diff > 0) {
-            // Send one frame
             uint32_t dhi, dlo;
             rollback_build_frame(app->rollback.serial, app->rollback.button,
                                (uint32_t)app->rollback.current_counter, &dhi, &dlo);
             transmit_packet_nonblock(app, dhi, dlo, app->frequency, 3);
 
-            // Advance counter
             app->rollback.current_counter += app->rollback.step_size;
 
-            // Check if done
             if(app->rollback.current_counter >= app->rollback.target_counter ||
                app->rollback.current_counter >= app->rollback.counter_limit) {
                 app->rollback.running = false;
@@ -424,7 +420,6 @@ __attribute__((visibility("default"))) int32_t app_main(void* p) {
     ProtoPirateApp* app = protoPirateApp_alloc();
     if(!app) return -1;
 
-    // Register all views once - do NOT re-register later
     view_dispatcher_add_view(app->view_dispatcher, ViewMenu,
                             submenu_get_view(app->submenu));
     view_dispatcher_add_view(app->view_dispatcher, ViewWidget,
@@ -438,19 +433,14 @@ __attribute__((visibility("default"))) int32_t app_main(void* p) {
     view_dispatcher_add_view(app->view_dispatcher, ViewPopup,
                             popup_get_view(app->popup));
 
-    // Initialize main menu
     scene_main_menu_alloc(app);
 
-    // Show menu
     view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
 
-    // Run UI loop
     view_dispatcher_run(app->view_dispatcher);
 
-    // Cleanup TX
     transmit_packet_stop(app);
 
-    // Free
     protoPirateApp_free(app);
     return 0;
 }
