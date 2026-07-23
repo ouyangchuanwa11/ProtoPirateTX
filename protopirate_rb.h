@@ -177,7 +177,7 @@ void transmit_packet_wait(ProtoPirateApp* app);
 // RollBack引擎
 bool rollback_attack_run(ProtoPirateApp* app);
 bool rollback_send_single(ProtoPirateApp* app, uint32_t serial, uint8_t button, uint16_t counter);
-void rollback_build_frame(uint32_t serial, uint8_t button, uint16_t counter, uint32_t* data_hi, uint32_t* data_lo);
+void rollback_build_frame(uint32_t serial, uint8_t button, uint32_t counter, uint32_t* data_hi, uint32_t* data_lo);
 
 // CRC
 uint8_t kia_crc8(uint8_t* data, uint8_t len);
