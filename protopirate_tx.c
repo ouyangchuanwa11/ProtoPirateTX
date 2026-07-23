@@ -172,7 +172,7 @@ void transmit_packet_nonblock(
     if(!app) return;
 
     // 如果已有 TX 在进行，忽略
-    if(g_tx_thread && furi_thread_is_running(g_tx_thread)) {
+    if(g_tx_thread && furi_thread_get_state(g_tx_thread) == FuriThreadStateRunning) {
         FURI_LOG_W(TAG, "TX already in progress, ignoring");
         return;
     }
