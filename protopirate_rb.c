@@ -17,6 +17,7 @@ static void result_button_callback(void* context, int32_t index, InputType type)
             app->frequency, 10);
     } else if(index == 3) {
         app->scene = SceneMainMenu;
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
     }
 }
 
@@ -25,12 +26,60 @@ static uint32_t navigation_callback(void* context) {
     return ViewMenu;
 }
 
+// ===================== Custom Event Callback =====================
+static bool custom_event_callback(void* context, uint32_t event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+
+    switch(event) {
+    case SceneMainMenu:
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+        return true;
+    case SceneReceive:
+        scene_receive_enter(app);
+        return true; // scene_receive_enter triggers SceneResult when done
+    case SceneResult:
+        scene_result_enter(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewButtonMenu);
+        return true;
+    case SceneRollback:
+        scene_rollback_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewWidget);
+        return true;
+    case SceneReplay:
+        scene_replay_enter(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewWidget);
+        return true;
+    case SceneFreqSelect:
+        scene_freq_select_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewVarList);
+        return true;
+    case SceneInfo:
+        scene_info_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewWidget);
+        return true;
+    default:
+        return false;
+    }
+}
+
+// ===================== Nav Event Callback =====================
+static bool nav_event_callback(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->scene = SceneMainMenu;
+    view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+    return true;
+}
+
 // ===================== 应用生命周期 =====================
 ProtoPirateApp* protoPirateApp_alloc(void) {
     ProtoPirateApp* app = malloc(sizeof(ProtoPirateApp));
     app->gui = furi_record_open(RECORD_GUI);
     app->view_dispatcher = view_dispatcher_alloc();
     view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
+
+    view_dispatcher_set_custom_event_callback(app->view_dispatcher, custom_event_callback);
+    view_dispatcher_set_navigation_event_callback(app->view_dispatcher, nav_event_callback);
+    view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
 
     app->submenu = submenu_alloc();
     app->var_item_list = variable_item_list_alloc();
@@ -67,13 +116,19 @@ void protoPirateApp_free(ProtoPirateApp* app) {
     for(uint8_t i = 0; i < app->history_count; i++) {
         if(app->history[i].raw_data) furi_string_free(app->history[i].raw_data);
     }
+    view_dispatcher_remove_view(app->view_dispatcher, ViewMenu);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewWidget);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewVarList);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewTextBox);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewButtonMenu);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewPopup);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewLoading);
     submenu_free(app->submenu);
     variable_item_list_free(app->var_item_list);
     text_box_free(app->text_box);
     widget_free(app->widget);
     button_menu_free(app->button_menu);
     popup_free(app->popup);
-    view_dispatcher_remove_view(app->view_dispatcher, ViewMenu);
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);
     free(app);
@@ -83,14 +138,20 @@ void protoPirateApp_free(ProtoPirateApp* app) {
 static void scene_main_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     app->submenu_index = index;
+
+    uint32_t event;
     switch(index) {
-    case 0: app->scene = SceneReceive; break;
-    case 1: app->scene = SceneReplay; break;
-    case 2: app->scene = SceneRollback; break;
-    case 3: app->scene = SceneFreqSelect; break;
-    case 4: app->scene = SceneInfo; break;
-    case 5: view_dispatcher_stop(app->view_dispatcher); break;
+    case 0: event = SceneReceive; break;
+    case 1: event = SceneReplay; break;
+    case 2: event = SceneRollback; break;
+    case 3: event = SceneFreqSelect; break;
+    case 4: event = SceneInfo; break;
+    case 5: view_dispatcher_stop(app->view_dispatcher); return;
+    default: return;
     }
+
+    app->scene = event;
+    view_dispatcher_send_custom_event(app->view_dispatcher, event);
 }
 
 void scene_main_menu_alloc(ProtoPirateApp* app) {
@@ -110,19 +171,18 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
 }
 
 // ===================== 场景: 接收 =====================
-void scene_receive_alloc(ProtoPirateApp* app) {
-    UNUSED(app);
-}
-
 void scene_receive_enter(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 5, AlignCenter, AlignTop, FontPrimary,
                               "Receiving...");
     widget_add_string_element(app->widget, 64, 25, AlignCenter, AlignTop, FontSecondary,
-                              "Waiting...");
+                              "Listening...");
 
-    // 模拟接收: 5秒超时
-    uint32_t timeout = furi_get_tick() + 5000;
+    // Show the receiving view first
+    view_dispatcher_switch_to_view(app->view_dispatcher, ViewWidget);
+
+    // 模拟接收: 3秒超时
+    uint32_t timeout = furi_get_tick() + 3000;
     while(furi_get_tick() < timeout) {
         furi_delay_ms(50);
     }
@@ -136,8 +196,10 @@ void scene_receive_enter(ProtoPirateApp* app) {
     app->last_result.counter = 0xABCD;
     app->last_result.crc_ok = true;
     app->last_result.data_hi = 0;
-    app->last_result.data_lo = 0x1234567;
+    app->last_result.data_lo = 0x1234567ABCD;
+
     app->scene = SceneResult;
+    view_dispatcher_send_custom_event(app->view_dispatcher, SceneResult);
 }
 
 // ===================== 场景: 结果 =====================
@@ -187,18 +249,23 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
     snprintf(line, sizeof(line), "Serial: 0x%07lX", app->rollback.serial);
     widget_add_string_element(app->widget, 64, 22, AlignCenter, AlignTop, FontSecondary, line);
 
-    snprintf(line, sizeof(line), "Base Cnt: 0x%04X  Step: %u",
-             app->rollback.base_counter, app->rollback.step_size);
+    snprintf(line, sizeof(line), "Cnt: 0x%04X -> 0x%04X  Step: %u",
+             app->rollback.base_counter, app->rollback.target_counter,
+             app->rollback.step_size);
     widget_add_string_element(app->widget, 64, 38, AlignCenter, AlignTop, FontKeyboard, line);
 
     widget_add_string_element(app->widget, 64, 58, AlignCenter, AlignTop, FontSecondary,
                               "OK = Run Attack");
     widget_add_string_element(app->widget, 64, 72, AlignCenter, AlignTop, FontKeyboard,
                               "BACK = Menu");
+
+    // Set back navigation
+    View* widget_view = widget_get_view(app->widget);
+    view_set_previous_callback(widget_view, navigation_callback);
 }
 
 // ===================== 场景: 重放 =====================
-void scene_replay_alloc(ProtoPirateApp* app) {
+void scene_replay_enter(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 5, AlignCenter, AlignTop, FontPrimary,
                               "Replay Signal");
@@ -209,9 +276,8 @@ void scene_replay_alloc(ProtoPirateApp* app) {
                  app->last_result.proto, app->last_result.serial);
         widget_add_string_element(app->widget, 64, 30, AlignCenter, AlignTop, FontKeyboard, line);
         widget_add_string_element(app->widget, 64, 55, AlignCenter, AlignTop, FontSecondary,
-                                  "OK = Replay");
+                                  "Replaying...");
 
-        // 发送信号
         transmit_packet(app,
             app->last_result.data_hi,
             app->last_result.data_lo,
@@ -228,10 +294,6 @@ void scene_replay_alloc(ProtoPirateApp* app) {
         widget_add_string_element(app->widget, 64, 55, AlignCenter, AlignTop, FontSecondary,
                                   "Demo TX sent! (x3)");
     }
-}
-
-void scene_replay_enter(ProtoPirateApp* app) {
-    scene_replay_alloc(app);
 }
 
 // ===================== 场景: 频率选择 =====================
@@ -252,7 +314,7 @@ void scene_info_alloc(ProtoPirateApp* app) {
     widget_add_string_element(app->widget, 64, 18, AlignCenter, AlignTop, FontSecondary,
                               "RollBack Edition v2.0");
     widget_add_string_element(app->widget, 64, 38, AlignCenter, AlignTop, FontKeyboard,
-                              "TX: FULLY UNLOCKED");
+                              "TX: REAL CC1101");
     widget_add_string_element(app->widget, 64, 52, AlignCenter, AlignTop, FontKeyboard,
                               "RollBack Attack Engine");
     widget_add_string_element(app->widget, 64, 72, AlignCenter, AlignTop, FontSecondary,
@@ -264,8 +326,15 @@ __attribute__((visibility("default"))) int32_t app_main(void* p) {
     UNUSED(p);
     ProtoPirateApp* app = protoPirateApp_alloc();
 
+    // Register all views
     scene_main_menu_alloc(app);
-    view_dispatcher_add_view(app->view_dispatcher, ViewMenu, submenu_get_view(app->submenu));
+    view_dispatcher_add_view(app->view_dispatcher, ViewWidget, widget_get_view(app->widget));
+    view_dispatcher_add_view(app->view_dispatcher, ViewVarList, variable_item_list_get_view(app->var_item_list));
+    view_dispatcher_add_view(app->view_dispatcher, ViewTextBox, text_box_get_view(app->text_box));
+    view_dispatcher_add_view(app->view_dispatcher, ViewButtonMenu, button_menu_get_view(app->button_menu));
+    view_dispatcher_add_view(app->view_dispatcher, ViewPopup, popup_get_view(app->popup));
+
+    // Start with main menu
     view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
     view_dispatcher_run(app->view_dispatcher);
 
