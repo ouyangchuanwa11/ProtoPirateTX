@@ -13,16 +13,8 @@
 #include <gui/modules/loading.h>
 #include <input/input.h>
 #include <lib/subghz/protocols/protocol_items.h>
-#include <lib/subghz/subghz_worker.h>
-#include <lib/subghz/subghz_setting.h>
-#include <lib/subghz/receiver.h>
-#include <lib/subghz/transmitter.h>
-#include <lib/subghz/protocols/raw.h>
-#include <lib/subghz/devices/cc1101_configs.h>
-#include <storage/storage.h>
 #include <flipper_format/flipper_format.h>
 #include <toolbox/stream/file_stream.h>
-#include <toolbox/path.h>
 #include <toolbox/level_duration.h>
 
 #define TAG "ProtoPirateRB"
@@ -72,19 +64,7 @@ typedef struct {
     uint8_t burst_count;
 } RollbackState;
 
-// ============ RX 工作线程状态 ============
-typedef struct {
-    FuriThread* thread;
-    SubGhzWorker* worker;
-    SubGhzReceiver* receiver;
-    SubGhzEnvironment* environment;
-    SubGhzSetting* setting;
-    volatile bool is_running;
-    volatile bool signal_received;
-    FuriString* raw_output;
-    DecodeResult* decoded;
-    uint32_t rx_frequency;
-} RxWorker;
+// (RX worker struct removed — not used in this Momentum-compatible build)
 
 // ============ 应用结构体 ============
 typedef struct {
@@ -96,8 +76,6 @@ typedef struct {
     Widget* widget;
     ButtonMenu* button_menu;
     Popup* popup;
-    Loading* loading;
-
     uint32_t frequency;
     HistoryItem history[MAX_HISTORY];
     uint8_t history_count;
@@ -108,10 +86,6 @@ typedef struct {
     uint32_t scene;
     uint32_t submenu_index;
     uint32_t result_menu_index;
-
-    // RX worker
-    RxWorker rx;
-    // TX frequency override for replay
     uint32_t tx_frequency;
 } ProtoPirateApp;
 
@@ -148,7 +122,6 @@ void scene_main_menu_alloc(ProtoPirateApp* app);
 // 接收场景
 void scene_receive_alloc(ProtoPirateApp* app);
 void scene_receive_enter(ProtoPirateApp* app);
-void scene_receive_exit(ProtoPirateApp* app);
 
 // 结果场景
 void scene_result_alloc(ProtoPirateApp* app);
@@ -156,8 +129,6 @@ void scene_result_enter(ProtoPirateApp* app);
 
 // RollBack场景
 void scene_rollback_alloc(ProtoPirateApp* app);
-void scene_rollback_enter(ProtoPirateApp* app);
-void scene_rollback_exit(ProtoPirateApp* app);
 
 // 重放场景
 void scene_replay_alloc(ProtoPirateApp* app);
@@ -169,8 +140,7 @@ void scene_freq_select_alloc(ProtoPirateApp* app);
 // 信息
 void scene_info_alloc(ProtoPirateApp* app);
 
-// 导航回调
-uint32_t main_menu_navigation(void* context);
+
 
 // 解码器
 DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data);
@@ -194,7 +164,4 @@ uint8_t kia_crc8(uint8_t* data, uint8_t len);
 // 工具函数
 const char* get_button_name(const char* proto, uint8_t btn);
 
-// RX worker 线程
-int32_t rx_worker_thread(void* context);
-bool rx_start(ProtoPirateApp* app);
-void rx_stop(ProtoPirateApp* app);
+
