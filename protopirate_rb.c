@@ -22,7 +22,13 @@ static void result_button_callback(void* context, int32_t index, InputType type)
 }
 
 static uint32_t navigation_callback(void* context) {
-    UNUSED(context);
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    // If already on main menu, return VIEW_NONE to let the dispatcher exit/stop
+    if(app->scene == SceneMainMenu) {
+        return VIEW_NONE;
+    }
+    // Otherwise go back to main menu
+    app->scene = SceneMainMenu;
     return ViewMenu;
 }
 
@@ -65,9 +71,14 @@ static bool custom_event_callback(void* context, uint32_t event) {
 // ===================== Nav Event Callback =====================
 static bool nav_event_callback(void* context) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-    app->scene = SceneMainMenu;
-    view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-    return true;
+    // Global fallback: if any view doesn't have its own previous callback,
+    // check current scene and navigate back to menu
+    if(app->scene != SceneMainMenu) {
+        app->scene = SceneMainMenu;
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+        return true;
+    }
+    return false;
 }
 
 // ===================== 应用生命周期 =====================
@@ -238,6 +249,11 @@ void scene_result_enter(ProtoPirateApp* app) {
     button_menu_add_item(app->button_menu, "Back", 3, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
     button_menu_set_selected_item(app->button_menu, 0);
+    
+    app->scene = SceneResult;
+    
+    // Set back navigation on the button menu view
+    view_set_previous_callback(button_menu_get_view(app->button_menu), navigation_callback);
 }
 
 // ===================== 场景: RollBack攻击 =====================
@@ -260,9 +276,12 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
     widget_add_string_element(app->widget, 64, 72, AlignCenter, AlignTop, FontKeyboard,
                               "BACK = Menu");
 
-    // Set back navigation
+    // Set back navigation on the widget view
     View* widget_view = widget_get_view(app->widget);
     view_set_previous_callback(widget_view, navigation_callback);
+    
+    // Also store current scene for nav callback
+    app->scene = SceneRollback;
 }
 
 // ===================== 场景: 重放 =====================
@@ -271,6 +290,8 @@ void scene_replay_enter(ProtoPirateApp* app) {
     widget_add_string_element(app->widget, 64, 5, AlignCenter, AlignTop, FontPrimary,
                               "Replay Signal");
 
+    app->scene = SceneReplay;
+
     if(app->last_result.bits > 0) {
         char line[64];
         snprintf(line, sizeof(line), "%s  Sn:0x%07lX",
@@ -278,7 +299,10 @@ void scene_replay_enter(ProtoPirateApp* app) {
         widget_add_string_element(app->widget, 64, 30, AlignCenter, AlignTop, FontKeyboard, line);
         widget_add_string_element(app->widget, 64, 55, AlignCenter, AlignTop, FontSecondary,
                                   "Replaying...");
+        widget_add_string_element(app->widget, 64, 68, AlignCenter, AlignTop, FontSecondary,
+                                  "Hold BACK to exit");
 
+        // Start TX in background, don't block ViewDispatcher
         transmit_packet(app,
             app->last_result.data_hi,
             app->last_result.data_lo,
@@ -295,6 +319,10 @@ void scene_replay_enter(ProtoPirateApp* app) {
         widget_add_string_element(app->widget, 64, 55, AlignCenter, AlignTop, FontSecondary,
                                   "Demo TX sent! (x3)");
     }
+    
+    // Ensure back navigation works
+    View* widget_view = widget_get_view(app->widget);
+    view_set_previous_callback(widget_view, navigation_callback);
 }
 
 // ===================== 场景: 频率选择 =====================
@@ -305,6 +333,9 @@ void scene_freq_select_alloc(ProtoPirateApp* app) {
     variable_item_list_add(app->var_item_list, "315.00 MHz (US)", 0, NULL, NULL);
     variable_item_list_add(app->var_item_list, "433.92 MHz (EU/Asia)", 0, NULL, NULL);
     variable_item_list_add(app->var_item_list, "868.35 MHz (EU)", 0, NULL, NULL);
+    
+    app->scene = SceneFreqSelect;
+    view_set_previous_callback(variable_item_list_get_view(app->var_item_list), navigation_callback);
 }
 
 // ===================== 场景: 信息 =====================
@@ -320,6 +351,10 @@ void scene_info_alloc(ProtoPirateApp* app) {
                               "RollBack Attack Engine");
     widget_add_string_element(app->widget, 64, 72, AlignCenter, AlignTop, FontSecondary,
                               "Momentum FW Dev");
+    
+    app->scene = SceneInfo;
+    View* widget_view = widget_get_view(app->widget);
+    view_set_previous_callback(widget_view, navigation_callback);
 }
 
 // ===================== 主入口 =====================
