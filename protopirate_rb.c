@@ -196,7 +196,8 @@ void scene_receive_enter(ProtoPirateApp* app) {
     app->last_result.counter = 0xABCD;
     app->last_result.crc_ok = true;
     app->last_result.data_hi = 0;
-    app->last_result.data_lo = 0x1234567ABCD;
+    app->last_result.data_lo = 0x1234567A;
+    app->last_result.data_hi = 0xBC; // 40-bit value split across hi/lo
 
     app->scene = SceneResult;
     view_dispatcher_send_custom_event(app->view_dispatcher, SceneResult);
