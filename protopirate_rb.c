@@ -8,7 +8,7 @@ static void result_button_callback(void* context, int32_t index, InputType type)
 
     switch(index) {
     case 0: // Send x3
-        transmit_packet_nonblock(app, app->last_result.data_hi,
+        transmit_packet(app, app->last_result.data_hi,
             app->last_result.data_lo, app->frequency, 3);
         break;
     case 1: // Send x5
