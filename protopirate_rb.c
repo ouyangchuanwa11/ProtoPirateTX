@@ -1,9 +1,10 @@
 #include "protopirate_rb.h"
 
 // ===================== 按钮回调 (SubmenuItemCallback: void(context, uint32_t)) =====================
-static void result_button_callback(void* context, uint32_t index) {
+// button_menu_add_item still uses old (void*, int32_t, InputType) callback
+static void result_button_callback(void* context, int32_t index, InputType type) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-    if(!app) return;
+    if(!app || type != InputTypePress) return;
 
     switch(index) {
     case 0: // Send x3
