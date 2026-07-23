@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: source_code
 
       - name: Checkout Flipper Zero firmware (Momentum)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Next-Flip/Momentum-Firmware
           ref: dev
