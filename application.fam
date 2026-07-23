@@ -12,6 +12,7 @@ App(
         "protopirate_rb.c",
         "protopirate_decoder.c",
         "protopirate_tx.c",
+        "protopirate_rollback.c",
     ],
     fap_icon = None,
     cdefines = ["APP_PROTOPIRATE_TX"],
