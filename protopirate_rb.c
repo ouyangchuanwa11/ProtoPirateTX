@@ -204,11 +204,7 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
 }
 
 // ===================== 场景: 接收 =====================
-// 滚动计数器递减算法
-static uint32_t rollback_decrement_counter(uint32_t base, uint32_t step) {
-    if(step >= base) return 0;
-    return base - step;
-}
+
 
 // 构建 RKE 帧 (通用格式: serial(28bit) + button(4bit) + counter(16bit) + checksum(16bit) = 64bit)
 static void rollback_build_frame(
