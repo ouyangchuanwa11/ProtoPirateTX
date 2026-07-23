@@ -25,6 +25,20 @@
 #define DEFAULT_FREQ FREQ_433
 #define ROLLBACK_BURST_DEFAULT 3
 #define RX_TIMEOUT_MS 30000
+#define ROLLBACK_LIMIT 0x10000
+
+// ============ 自定义事件 ============
+typedef enum {
+    EventGoMenu = 100,
+    EventReceive,
+    EventRollback,
+    EventReplay,
+    EventFreqSelect,
+    EventInfo,
+    EventReceiveDone,
+    EventRollbackRun,
+    EventRollbackToggle,
+} AppCustomEvent;
 
 // ============ 解码结果 ============
 typedef struct {
@@ -62,6 +76,7 @@ typedef struct {
     uint32_t data_lo;
     bool found;
     uint8_t burst_count;
+    uint32_t counter_limit;
 } RollbackState;
 
 // (RX worker struct removed — not used in this Momentum-compatible build)
@@ -86,12 +101,12 @@ typedef struct {
     uint32_t scene;
     uint32_t submenu_index;
     uint32_t result_menu_index;
+    uint32_t counter; // 通用计数器
     // TX 线程参数
     uint32_t tx_freq;
     uint32_t tx_data_hi;
     uint32_t tx_data_lo;
     uint8_t tx_repeats;
-    uint32_t tx_frequency;
 } ProtoPirateApp;
 
 // ============ 场景定义 ============
@@ -126,18 +141,16 @@ void scene_main_menu_alloc(ProtoPirateApp* app);
 
 // 接收场景
 void scene_receive_alloc(ProtoPirateApp* app);
-void scene_receive_enter(ProtoPirateApp* app);
 
 // 结果场景
-void scene_result_alloc(ProtoPirateApp* app);
-void scene_result_enter(ProtoPirateApp* app);
+void scene_result_main_alloc(ProtoPirateApp* app);
 
 // RollBack场景
 void scene_rollback_alloc(ProtoPirateApp* app);
 
 // 重放场景
 void scene_replay_alloc(ProtoPirateApp* app);
-void scene_replay_enter(ProtoPirateApp* app);
+
 
 // 频率选择
 void scene_freq_select_alloc(ProtoPirateApp* app);
