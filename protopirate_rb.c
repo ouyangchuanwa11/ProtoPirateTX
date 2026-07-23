@@ -166,7 +166,7 @@ static void scene_main_menu_callback(void* context, uint32_t index) {
 }
 
 void scene_main_menu_alloc(ProtoPirateApp* app) {
-    submenu_clean(app->submenu);
+    submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "ProtoPirate RB");
 
     submenu_add_item(app->submenu, "   Receive Signal", 0, scene_main_menu_callback, app);
@@ -350,16 +350,6 @@ static void freq_change_callback(VariableItem* item) {
         variable_item_set_current_value_text(item, FREQ_NAMES[index]);
         FURI_LOG_I(TAG, "Freq set to %lu Hz", app->frequency);
     }
-}
-
-// Receive 场景的 OK 按键处理：进入 Result 页面
-static void receive_ok_callback(void* context) {
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-    if(!app) return;
-    
-    // 模拟接收完成后切换到结果
-    app->scene = SceneResult;
-    view_dispatcher_send_custom_event(app->view_dispatcher, SceneResult);
 }
 
 static void freq_enter_callback(void* context, uint32_t index) {
