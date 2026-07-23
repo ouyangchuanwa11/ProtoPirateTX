@@ -2,19 +2,12 @@
 #include <lib/subghz/devices/cc1101_configs.h>
 #include <lib/subghz/protocols/raw.h>
 
+#undef TAG
 #define TAG "ProtoPirateTX"
 
 // ===================== TX 发射模块 =====================
 // 使用 CC1101 + Flipper HAL SubGHz API 进行真实发射
 // Momentum Firmware 兼容版本
-
-// 获取 TX 路径（根据频率自动选择）
-static FuriHalSubGhzPath get_tx_path_for_freq(uint32_t freq) {
-    if(freq >= 280999633 && freq <= 360999938) return FuriHalSubGhzPath315;
-    if(freq >= 377999755 && freq <= 481000000) return FuriHalSubGhzPath433;
-    if(freq >= 748999633 && freq <= 962000000) return FuriHalSubGhzPath868;
-    return FuriHalSubGhzPath433; // 默认
-}
 
 bool tx_init_hw(ProtoPirateApp* app, uint32_t freq) {
     UNUSED(app);
