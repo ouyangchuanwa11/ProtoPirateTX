@@ -6,60 +6,106 @@
 #define TAG "ProtoPirateTX"
 
 // ===================== TX 发射模块 =====================
-// 使用 CC1101 + Flipper HAL SubGHz API 进行真实发射
+// 使用 CC1101 + Flipper HAL SubGHz async TX API 进行真实发射
 // Momentum Firmware 兼容版本
+
+// Async TX 回调数据
+typedef struct {
+    uint32_t data[2];       // data_hi, data_lo
+    uint8_t bit_pos;        // current bit position (0=first bit)
+    uint8_t byte_pos;       // byte-level position
+    uint32_t repeat_pos;    // repeat index
+    uint8_t repeats;        // total repeats
+    uint8_t phase;          // 0=carrier_on, 1=carrier_off, 2=bit, 3=gap
+    bool sending;
+} TxState;
+
+static TxState tx_state;
+
+// OOK 650kHz 调制参数
+// 对于 Kia V0 协议 (HiTag2-like)：
+// 逻辑 1: ~560us ON + ~280us OFF
+// 逻辑 0: ~280us ON + ~560us OFF
+// 帧间隔: ~10ms OFF
+#define BIT1_ON  560
+#define BIT1_OFF 280
+#define BIT0_ON  280
+#define BIT0_OFF 560
+#define PRE_ON   8000   // 8ms 前导载波
+#define PRE_OFF  4000   // 4ms 间隔
+#define FRAME_GAP 12000 // 帧间隔
+
+static LevelDuration tx_callback(void* context) {
+    UNUSED(context);
+
+    if(!tx_state.sending) {
+        return LevelDurationEnd();
+    }
+
+    // 阶段 0: 前导载波 (ON)
+    if(tx_state.phase == 0) {
+        tx_state.phase = 1;
+        return level_duration_make(true, PRE_ON);
+    }
+
+    // 阶段 1: 前导间隔 (OFF)
+    if(tx_state.phase == 1) {
+        tx_state.phase = 2;
+        tx_state.bit_pos = 0;
+        tx_state.byte_pos = 0;
+        return level_duration_make(false, PRE_OFF);
+    }
+
+    // 阶段 2: 发送数据 bit + gap
+    if(tx_state.bit_pos < 64) {
+        // Select the correct word
+        uint32_t word = (tx_state.bit_pos < 32) ? tx_state.data[0] : tx_state.data[1];
+        uint8_t bit_offset = (tx_state.bit_pos < 32) ? (31 - tx_state.bit_pos) : (63 - tx_state.bit_pos);
+        uint8_t bit = (word >> bit_offset) & 1;
+
+        if(tx_state.byte_pos == 0) {
+            // Send ON time for this bit
+            tx_state.byte_pos = 1;
+            if(bit) return level_duration_make(true, BIT1_ON);
+            else    return level_duration_make(true, BIT0_ON);
+        } else {
+            // Send OFF time (gap) for this bit
+            tx_state.byte_pos = 0;
+            tx_state.bit_pos++;
+            if(bit) return level_duration_make(false, BIT1_OFF);
+            else    return level_duration_make(false, BIT0_OFF);
+        }
+    }
+
+    // All 64 bits sent for this frame
+    tx_state.repeat_pos++;
+    if(tx_state.repeat_pos >= tx_state.repeats) {
+        // All repeats done
+        tx_state.sending = false;
+        return LevelDurationEnd();
+    }
+
+    // Frame gap before next repeat
+    tx_state.phase = 0;
+    tx_state.byte_pos = 0;
+    return level_duration_make(false, FRAME_GAP);
+}
 
 bool tx_init_hw(ProtoPirateApp* app, uint32_t freq) {
     UNUSED(app);
     FURI_LOG_I(TAG, "TX init: freq=%lu", freq);
 
-    // Reset CC1101
     furi_hal_subghz_reset();
     furi_delay_ms(10);
 
-    // Load OOK 650kHz async preset using custom preset bytes (Momentum API)
     furi_hal_subghz_load_custom_preset(
         subghz_device_cc1101_preset_ook_650khz_async_regs);
     furi_delay_ms(10);
 
-    // Set frequency (also selects correct path)
     uint32_t real_freq = furi_hal_subghz_set_frequency_and_path(freq);
     FURI_LOG_I(TAG, "Real frequency: %lu Hz", real_freq);
     furi_delay_ms(10);
 
-    FURI_LOG_I(TAG, "TX init OK at %lu Hz (real: %lu)", freq, real_freq);
-    return true;
-}
-
-bool transmit_raw(
-    ProtoPirateApp* app,
-    FuriString* raw_data,
-    uint32_t freq,
-    uint8_t repeats) {
-    if(!app || !raw_data || furi_string_empty(raw_data)) {
-        FURI_LOG_E(TAG, "transmit_raw: invalid params");
-        return false;
-    }
-
-    FURI_LOG_I(TAG, "TX RAW: freq=%lu repeats=%u", freq, repeats);
-
-    if(!tx_init_hw(app, freq)) return false;
-
-    // Send raw bursts
-    for(uint8_t b = 0; b < repeats; b++) {
-        FURI_LOG_I(TAG, "TX RAW burst %u/%u", b + 1, repeats);
-
-        // Activate TX
-        if(!furi_hal_subghz_tx()) {
-            FURI_LOG_W(TAG, "TX blocked by region restriction");
-            break;
-        }
-        furi_delay_ms(200);
-        furi_hal_subghz_idle();
-        furi_delay_ms(50);
-    }
-
-    FURI_LOG_I(TAG, "TX RAW: complete (%u bursts)", repeats);
     return true;
 }
 
@@ -76,47 +122,99 @@ bool transmit_packet(
 
     if(!tx_init_hw(app, freq)) return false;
 
-    for(uint8_t b = 0; b < repeats; b++) {
-        FURI_LOG_I(TAG, "TX burst %u/%u", b + 1, repeats);
+    tx_state.data[0] = data_hi;
+    tx_state.data[1] = data_lo;
+    tx_state.repeat_pos = 0;
+    tx_state.repeats = repeats;
+    tx_state.phase = 0;
+    tx_state.byte_pos = 0;
+    tx_state.bit_pos = 0;
+    tx_state.sending = true;
 
-        // Activate TX
-        if(!furi_hal_subghz_tx()) {
-            FURI_LOG_W(TAG, "TX blocked by region restriction");
-            break;
-        }
-
-        // Transmit for ~120ms
-        furi_delay_ms(120);
-
-        // Back to idle
+    if(!furi_hal_subghz_start_async_tx(tx_callback, NULL)) {
+        FURI_LOG_W(TAG, "TX blocked by region restriction");
+        tx_state.sending = false;
         furi_hal_subghz_idle();
-        furi_delay_ms(40);
+        return false;
     }
 
-    FURI_LOG_I(TAG, "TX PACKET: complete");
+    while(!furi_hal_subghz_is_async_tx_complete()) {
+        furi_delay_ms(10);
+    }
+
+    furi_hal_subghz_stop_async_tx();
+    furi_hal_subghz_idle();
+    FURI_LOG_I(TAG, "TX PACKET complete");
     return true;
 }
 
 void transmit_start(ProtoPirateApp* app, uint32_t freq) {
     if(!tx_init_hw(app, freq)) return;
-    furi_hal_subghz_tx();
-    FURI_LOG_I(TAG, "TX START: freq=%lu", freq);
+
+    tx_state.sending = true;
+    tx_state.data[0] = 0;
+    tx_state.data[1] = 0;
+    tx_state.repeat_pos = 0;
+    tx_state.repeats = 1;
+    tx_state.phase = 0;
+    tx_state.byte_pos = 0;
+    tx_state.bit_pos = 0;
+
+    if(!furi_hal_subghz_start_async_tx(tx_callback, NULL)) {
+        FURI_LOG_W(TAG, "TX START blocked");
+        return;
+    }
+    FURI_LOG_I(TAG, "TX START");
 }
 
 void transmit_burst(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo) {
-    UNUSED(data_hi);
-    UNUSED(data_lo);
     UNUSED(app);
 
-    // Toggle TX briefly
-    furi_hal_subghz_tx();
-    furi_delay_ms(100);
+    // If async TX still running, stop it first
+    if(!furi_hal_subghz_is_async_tx_complete()) {
+        furi_hal_subghz_stop_async_tx();
+    }
+
+    tx_state.data[0] = data_hi;
+    tx_state.data[1] = data_lo;
+    tx_state.repeat_pos = 0;
+    tx_state.repeats = 1;
+    tx_state.phase = 0;
+    tx_state.byte_pos = 0;
+    tx_state.bit_pos = 0;
+    tx_state.sending = true;
+
+    if(!furi_hal_subghz_start_async_tx(tx_callback, NULL)) {
+        FURI_LOG_W(TAG, "TX burst blocked");
+        tx_state.sending = false;
+        return;
+    }
+
+    while(!furi_hal_subghz_is_async_tx_complete()) {
+        furi_delay_ms(5);
+    }
+
+    furi_hal_subghz_stop_async_tx();
     furi_hal_subghz_idle();
-    furi_delay_ms(50);
+    furi_delay_ms(10);
 }
 
 void transmit_stop(ProtoPirateApp* app) {
     UNUSED(app);
+    tx_state.sending = false;
+    if(!furi_hal_subghz_is_async_tx_complete()) {
+        furi_hal_subghz_stop_async_tx();
+    }
     furi_hal_subghz_idle();
     FURI_LOG_I(TAG, "TX STOP");
+}
+
+bool transmit_raw(
+    ProtoPirateApp* app,
+    FuriString* raw_data,
+    uint32_t freq,
+    uint8_t repeats) {
+    UNUSED(raw_data);
+    FURI_LOG_I(TAG, "TX RAW: freq=%lu repeats=%u", freq, repeats);
+    return transmit_packet(app, 0xAAAAAAAA, 0xAAAAAAAA, freq, repeats);
 }
