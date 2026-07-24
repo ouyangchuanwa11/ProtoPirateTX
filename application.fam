@@ -1,13 +1,13 @@
-﻿App(
-    appid = "protopirate_tx",
+App(
+    appid = "protopirate",
     apptype = FlipperAppType.EXTERNAL,
     entry_point = "app_main",
-    name = "ProtoPirateTX",
+    name = "ProtoPirate",
     fap_description = "Decode + TX + RollBack attack for rolling-code keys",
     fap_author = "ProtoPirate RB",
     fap_weburl = "https://github.com/ouyangchuanwa11/ProtoPirateTX",
     fap_category = "Sub-GHz",
-    fap_version = "2.1",
+    fap_version = "3.0",
     sources = [
         "protopirate_rb.c",
         "protopirate_decoder.c",
@@ -15,5 +15,5 @@
         "protopirate_rollback.c",
     ],
     fap_icon = "protopirate_icon.png",
-    cdefines = ["APP_PROTOPIRATE_TX"],
+    cdefines = ["APP_PROTOPIRATE"],
 )
