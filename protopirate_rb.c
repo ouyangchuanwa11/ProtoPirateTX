@@ -37,7 +37,7 @@ static bool subghz_open(void) {
     if(g_subghz_device) return true;
 
 
-    g_subghz_device = subghz_devices_get_by_name(SUBGHZ_DEVICE_CC1101_INT_NAME);
+    g_subghz_device = subghz_devices_get_by_name("cc1101_int");
 
 
     return (g_subghz_device != NULL);
@@ -73,7 +73,7 @@ static void subghz_close(void) {
 // =====================              =====================
 
 
-static void result_button_callback(void* context, int32_t index, InputType type) {
+static void __attribute__((unused)) result_button_callback(void* context, int32_t index, InputType type) {
 
 
     ProtoPirateApp* app = (ProtoPirateApp*)context;
@@ -226,7 +226,7 @@ static void rollback_menu_callback(void* context, uint32_t index) {
     case 4: // Batch 500
 
 
-        app->batch.count = 500;
+        app->batch.count = (uint8_t)244;
 
 
         view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
@@ -289,7 +289,7 @@ static void rollback_batch_menu_callback(void* context, uint32_t index) {
     case 2:
 
 
-        app->batch.count = 500;
+        app->batch.count = (uint8_t)244;
 
 
         view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
@@ -316,7 +316,7 @@ static void rollback_batch_menu_callback(void* context, uint32_t index) {
 
 
 
-static void replay_menu_callback(void* context, uint32_t index) {
+static void __attribute__((unused)) replay_menu_callback(void* context, uint32_t index) {
 
 
     ProtoPirateApp* app = (ProtoPirateApp*)context;
@@ -415,7 +415,7 @@ static void replay_menu_callback(void* context, uint32_t index) {
     case 4: // Batch 500
 
 
-        app->batch.count = 500;
+        app->batch.count = (uint8_t)244;
 
 
         view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
@@ -595,7 +595,7 @@ static void receive_menu_callback(void* context, uint32_t index) {
 
 
 
-"TX: Real CC1101"==============
+// "TX: Real CC1101"==============
 
 
 //        SubGhz              RSSI             
@@ -638,6 +638,10 @@ bool rx_start_capture(ProtoPirateApp* app) {
 
 
     app->pulse_count = 0;
+    // Local sample params
+    const int32_t rx_sample_us = 50;
+    const int32_t rx_max_samples = 50000;
+    const int16_t rssi_threshold = -60;
 
 
     
@@ -649,7 +653,7 @@ bool rx_start_capture(ProtoPirateApp* app) {
     
 
 
-    "TX: Real CC1101"
+    (void)0;
 
 
     subghz_devices_begin(g_subghz_device);
@@ -1363,7 +1367,7 @@ void scene_main_menu_alloc(ProtoPirateApp* app) {
     char freq_str[24];
 
 
-    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0);
+    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0f);
 
 
     
@@ -1417,7 +1421,7 @@ void scene_receive_alloc(ProtoPirateApp* app) {
     char freq_str[24];
 
 
-    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0);
+    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0f);
 
 
     submenu_add_item(app->submenu, "  >> Start Capture <<", 0, receive_menu_callback, app);
@@ -1441,7 +1445,7 @@ void scene_receive_alloc(ProtoPirateApp* app) {
 
 
 
-"BACK = MENU"
+// "BACK = MENU"
 
 
 void scene_result_main_alloc(ProtoPirateApp* app) {
@@ -1786,7 +1790,7 @@ void scene_rollback_config_alloc(ProtoPirateApp* app) {
 
 
 
-"  Replay Signal"
+// "  Replay Signal"
 
 
 void scene_replay_alloc(ProtoPirateApp* app) {
