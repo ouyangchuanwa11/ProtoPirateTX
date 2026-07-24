@@ -1,4 +1,4 @@
-﻿#include "protopirate_rb.h"
+#include "protopirate_rb.h"
 #include <furi_hal_subghz.h>
 #include <lib/subghz/devices/cc1101_configs.h>
 #include <lib/subghz/devices/devices.h>
@@ -6,12 +6,12 @@
 #include <furi_hal_spi.h>
 #include <furi_hal_power.h>
 
-// ===================== 全局 SubGhz 设备 =====================
+// ===================== 鍏ㄥ眬 SubGhz 璁惧 =====================
 static const SubGhzDevice* g_subghz_device = NULL;
 
 static bool subghz_open(void) {
     if(g_subghz_device) return true;
-    g_subghz_device = subghz_devices_get_by_index(0);
+    g_subghz_device = subghz_devices_get_by_name(SUBGHZ_DEVICE_CC1101_INT_NAME);
     return (g_subghz_device != NULL);
 }
 
@@ -22,7 +22,7 @@ static void subghz_close(void) {
     }
 }
 
-// ===================== 按钮回调 =====================
+// ===================== 鎸夐挳鍥炶皟 =====================
 static void result_button_callback(void* context, int32_t index, InputType type) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app || type != InputTypePress) return;
@@ -52,7 +52,7 @@ static void result_button_callback(void* context, int32_t index, InputType type)
     }
 }
 
-// ===================== Submenu 菜单回调 =====================
+// ===================== Submenu 鑿滃崟鍥炶皟 =====================
 static void rollback_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
@@ -146,17 +146,17 @@ static void replay_menu_callback(void* context, uint32_t index) {
     }
 }
 
-// ===================== Capture 结果菜单 =====================
+// ===================== Capture 缁撴灉鑿滃崟 =====================
 static void receive_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
 
     switch(index) {
-    case 0: // Capture Now (真正 RX 捕获)
+    case 0: // Capture Now (鐪熸 RX 鎹曡幏)
         view_dispatcher_switch_to_view(app->view_dispatcher, ViewLoading);
         if(rx_start_capture(app)) {
             FURI_LOG_I(TAG, "RX capture started on %lu Hz", app->frequency);
-            // 捕获后的数据会自动填充 last_result
+            // 鎹曡幏鍚庣殑鏁版嵁浼氳嚜鍔ㄥ～鍏?last_result
             FuriString* captured = rx_format_capture(app);
             if(captured) {
                 DecodeResult* dec = decode_signal(app, captured);
@@ -173,8 +173,7 @@ static void receive_menu_callback(void* context, uint32_t index) {
             rx_stop_capture(app);
             view_dispatcher_send_custom_event(app->view_dispatcher, EventReceiveDone);
         } else {
-            // RX 失败，回退到模拟演示
-            app->last_result.bits = 64;
+            // RX 澶辫触锛屽洖閫€鍒版ā鎷熸紨绀?            app->last_result.bits = 64;
             app->last_result.serial = 0x1234567;
             app->last_result.button = 2;
             strncpy(app->last_result.btn_name, "Unlock", sizeof(app->last_result.btn_name));
@@ -197,12 +196,10 @@ static void receive_menu_callback(void* context, uint32_t index) {
     }
 }
 
-// ===================== 真正 RX 捕获（使用 CC1101 直接捕获）=====================
-// 使用 SubGhz 设备进行 RSSI 脉冲捕获
-static const uint32_t rx_sample_us = 50; // 50us 采样间隔
-static const uint32_t rx_max_samples = 50000; // 最多 2.5 秒
-static const int16_t rssi_threshold = -60; // 信号阈值
-
+// ===================== 鐪熸 RX 鎹曡幏锛堜娇鐢?CC1101 鐩存帴鎹曡幏锛?====================
+// 浣跨敤 SubGhz 璁惧杩涜 RSSI 鑴夊啿鎹曡幏
+static const uint32_t rx_sample_us = 50; // 50us 閲囨牱闂撮殧
+static const uint32_t rx_max_samples = 50000; // 鏈€澶?2.5 绉?static const int16_t rssi_threshold = -60; // 淇″彿闃堝€?
 bool rx_start_capture(ProtoPirateApp* app) {
     if(!app) return false;
     if(!subghz_open()) {
@@ -215,21 +212,19 @@ bool rx_start_capture(ProtoPirateApp* app) {
     
     FURI_LOG_I(TAG, "RX start: freq=%lu", app->frequency);
     
-    // 配置 CC1101 为接收模式
-    subghz_devices_begin(g_subghz_device);
+    // 閰嶇疆 CC1101 涓烘帴鏀舵ā寮?    subghz_devices_begin(g_subghz_device);
     subghz_devices_load_preset(g_subghz_device, FuriHalSubGhzPresetOok650Async, NULL);
     subghz_devices_set_frequency(g_subghz_device, app->frequency);
     
-    // 设置接收带宽和增益
-    subghz_devices_set_rx(g_subghz_device);
+    // 璁剧疆鎺ユ敹甯﹀鍜屽鐩?    subghz_devices_set_rx(g_subghz_device);
     
     furi_delay_ms(10);
     
-    // 捕获脉冲
+    // 鎹曡幏鑴夊啿
     uint32_t samples_taken = 0;
     bool last_level = false;
     uint32_t pulse_dur = 0;
-    int16_t last_rssi = 0;
+
     
     while(app->rx_running && samples_taken < rx_max_samples) {
         int16_t rssi = subghz_devices_get_rssi(g_subghz_device);
@@ -249,8 +244,7 @@ bool rx_start_capture(ProtoPirateApp* app) {
         furi_delay_us(rx_sample_us);
     }
     
-    // 保存最后一个脉冲
-    if(pulse_dur > 0 && app->pulse_count < 4096) {
+    // 淇濆瓨鏈€鍚庝竴涓剦鍐?    if(pulse_dur > 0 && app->pulse_count < 4096) {
         int32_t signed_dur = pulse_dur * (int32_t)rx_sample_us;
         app->pulse_buffer[app->pulse_count++] = last_level ? signed_dur : -signed_dur;
     }
@@ -274,16 +268,16 @@ FuriString* rx_format_capture(ProtoPirateApp* app) {
     
     FuriString* result = furi_string_alloc();
     
-    // 格式: "123 -456 789 ..."
+    // 鏍煎紡: "123 -456 789 ..."
     for(uint16_t i = 0; i < app->pulse_count; i++) {
-        furi_string_cat_printf(result, "%d ", app->pulse_buffer[i]);
+        furi_string_cat_printf(result, "%ld ", app->pulse_buffer[i]);
     }
     
     FURI_LOG_I(TAG, "rx_format: %s", furi_string_get_cstr(result));
     return result;
 }
 
-// ===================== 自定义事件回调 =====================
+// ===================== 鑷畾涔変簨浠跺洖璋?=====================
 static bool custom_event_callback(void* context, uint32_t event) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return false;
@@ -341,7 +335,7 @@ static bool custom_event_callback(void* context, uint32_t event) {
     }
 }
 
-// ===================== 导航回调 =====================
+// ===================== 瀵艰埅鍥炶皟 =====================
 static uint32_t back_to_menu_callback(void* context) {
     UNUSED(context);
     return ViewMenu;
@@ -352,7 +346,7 @@ static bool nav_event_callback(void* context) {
     return false;
 }
 
-// ===================== 应用分配 =====================
+// ===================== 搴旂敤鍒嗛厤 =====================
 ProtoPirateApp* protoPirateApp_alloc(void) {
     ProtoPirateApp* app = malloc(sizeof(ProtoPirateApp));
     if(!app) return NULL;
@@ -382,7 +376,7 @@ ProtoPirateApp* protoPirateApp_alloc(void) {
     memset(&app->last_result, 0, sizeof(DecodeResult));
     strncpy(app->last_result.proto, "None", sizeof(app->last_result.proto));
 
-    // RollBack 默认参数
+    // RollBack 榛樿鍙傛暟
     app->rollback.base_counter = 0;
     app->rollback.target_counter = 100;
     app->rollback.step_size = 1;
@@ -395,7 +389,7 @@ ProtoPirateApp* protoPirateApp_alloc(void) {
     app->rollback.protocol_type = Proto_Kia_V0;
     strncpy(app->rollback.proto, "Kia V0", sizeof(app->rollback.proto));
 
-    // 批量默认
+    // 鎵归噺榛樿
     app->batch.count = 50;
     app->batch.active = false;
 
@@ -427,7 +421,7 @@ void protoPirateApp_free(ProtoPirateApp* app) {
     free(app);
 }
 
-// ===================== 主菜单 =====================
+// ===================== 涓昏彍鍗?=====================
 static void scene_main_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
@@ -450,63 +444,63 @@ static void scene_main_menu_callback(void* context, uint32_t index) {
 
 void scene_main_menu_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "ProtoPirate TX v2.1");
+    submenu_set_header(app->submenu, "ProtoPirate TX v2.1 涓枃鐗?);
 
     char freq_str[24];
     snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0);
     
-    submenu_add_item(app->submenu, "  [RX] Capture Signal", 0, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  [TX] Replay Signal", 1, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  [RB] RollBack Attack", 2, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎹曡幏淇″彿", 0, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  閲嶆斁淇″彿", 1, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  鍥炴粴鏀诲嚮", 2, scene_main_menu_callback, app);
     submenu_add_item(app->submenu, freq_str, 3, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  About", 4, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  EXIT", 5, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  鍏充簬", 4, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  閫€鍑?, 5, scene_main_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
-// ===================== Capture 场景 =====================
+// ===================== Capture 鍦烘櫙 =====================
 void scene_receive_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "Capture Signal");
+    submenu_set_header(app->submenu, "鎹曡幏淇″彿");
 
     char freq_str[24];
     snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0);
-    submenu_add_item(app->submenu, "  >> Start Capture <<", 0, receive_menu_callback, app);
+    submenu_add_item(app->submenu, "  >> 寮€濮嬫崟鑾?<<", 0, receive_menu_callback, app);
     submenu_add_item(app->submenu, freq_str, 0, NULL, app);
-    submenu_add_item(app->submenu, "  Back to Menu", 1, receive_menu_callback, app);
+    submenu_add_item(app->submenu, "  杩斿洖鑿滃崟", 1, receive_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
-// ===================== 结果场景 (ButtonMenu) =====================
+// ===================== 缁撴灉鍦烘櫙 (ButtonMenu) =====================
 void scene_result_main_alloc(ProtoPirateApp* app) {
     button_menu_reset(app->button_menu);
-    button_menu_set_header(app->button_menu, "Signal Captured!");
+    button_menu_set_header(app->button_menu, "淇″彿宸叉崟鑾?");
 
     char sn_str[30];
-    snprintf(sn_str, sizeof(sn_str), "Send x3 (Sn:0x%lX)", app->last_result.serial);
+    snprintf(sn_str, sizeof(sn_str), "鍙戦€亁3 (Sn:0x%lX)", app->last_result.serial);
     button_menu_add_item(app->button_menu, sn_str, 0, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
-    button_menu_add_item(app->button_menu, "Send x5", 1, result_button_callback,
+    button_menu_add_item(app->button_menu, "鍙戦€亁5", 1, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
-    button_menu_add_item(app->button_menu, "Send x10", 2, result_button_callback,
+    button_menu_add_item(app->button_menu, "鍙戦€亁10", 2, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
-    button_menu_add_item(app->button_menu, "Batch Send", 3, result_button_callback,
+    button_menu_add_item(app->button_menu, "鎵归噺鍙戦€?, 3, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
-    button_menu_add_item(app->button_menu, "RollBack Attack", 4, result_button_callback,
+    button_menu_add_item(app->button_menu, "鍥炴粴鏀诲嚮", 4, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
-    button_menu_add_item(app->button_menu, "Back to Menu", 5, result_button_callback,
+    button_menu_add_item(app->button_menu, "杩斿洖鑿滃崟", 5, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
     button_menu_set_selected_item(app->button_menu, 0);
 
     view_set_previous_callback(button_menu_get_view(app->button_menu), back_to_menu_callback);
 }
 
-// ===================== RollBack 场景 =====================
+// ===================== RollBack 鍦烘櫙 =====================
 void scene_rollback_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "RollBack Attack");
+    submenu_set_header(app->submenu, "鍥炴粴鏀诲嚮");
 
     char line[50];
     snprintf(line, sizeof(line), "  %s Sn:0x%lX Btn:%u",
@@ -522,16 +516,15 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
         submenu_add_item(app->submenu, line, 0, NULL, app);
     }
 
-    submenu_add_item(app->submenu, "  >> START ATTACK <<", 0, rollback_menu_callback, app);
-    submenu_add_item(app->submenu, "  Config", 1, rollback_menu_callback, app);
-    submenu_add_item(app->submenu, "  Batch 50x", 2, rollback_menu_callback, app);
-    submenu_add_item(app->submenu, "  Batch 100x", 3, rollback_menu_callback, app);
-    submenu_add_item(app->submenu, "  Batch 500x", 4, rollback_menu_callback, app);
-    submenu_add_item(app->submenu, "  Back to Menu", 5, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  >> 寮€濮嬫敾鍑?<<", 0, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  閰嶇疆", 1, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎵归噺 50娆?, 2, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎵归噺 100娆?, 3, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎵归噺 500娆?, 4, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  杩斿洖鑿滃崟", 5, rollback_menu_callback, app);
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 
-    // 如果正在运行，发送当前计数器帧
-    if(app->rollback.running) {
+    // 濡傛灉姝ｅ湪杩愯锛屽彂閫佸綋鍓嶈鏁板櫒甯?    if(app->rollback.running) {
         int32_t diff = (int32_t)app->rollback.target_counter - app->rollback.current_counter;
         if(diff > 0) {
             for(uint8_t b = 0; b < app->rollback.burst_count; b++) {
@@ -554,13 +547,13 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
     }
 }
 
-// ===================== RollBack 配置场景 =====================
+// ===================== RollBack 閰嶇疆鍦烘櫙 =====================
 void scene_rollback_config_alloc(ProtoPirateApp* app) {
     variable_item_list_reset(app->var_item_list);
 
-    // 协议选择
+    // 鍗忚閫夋嫨
     VariableItem* proto_item = variable_item_list_add(
-        app->var_item_list, "Protocol", Proto_COUNT,
+        app->var_item_list, "鍗忚", Proto_COUNT,
         NULL, app);
     variable_item_set_current_value_index(proto_item, app->rollback.protocol_type);
     variable_item_set_current_value_text(proto_item,
@@ -594,53 +587,53 @@ void scene_rollback_config_alloc(ProtoPirateApp* app) {
     view_set_previous_callback(variable_item_list_get_view(app->var_item_list), back_to_menu_callback);
 }
 
-// ===================== Replay 场景 =====================
+// ===================== Replay 鍦烘櫙 =====================
 void scene_replay_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "Replay Signal");
+    submenu_set_header(app->submenu, "閲嶆斁淇″彿");
 
     char line[40];
     if(app->last_result.bits > 0 && !app->last_result.is_demo) {
         snprintf(line, sizeof(line), "  %s Sn:0x%lX",
                  app->last_result.proto, app->last_result.serial);
-        submenu_add_item(app->submenu, "  >> Replay Now <<", 0, replay_menu_callback, app);
+        submenu_add_item(app->submenu, "  >> 绔嬪嵆閲嶆斁 <<", 0, replay_menu_callback, app);
     } else {
-        submenu_add_item(app->submenu, "  >> Send Demo Frame <<", 0, replay_menu_callback, app);
+        submenu_add_item(app->submenu, "  >> 鍙戦€佹紨绀哄抚 <<", 0, replay_menu_callback, app);
     }
-    submenu_add_item(app->submenu, "  Send Demo (Kia Unlock)", 1, replay_menu_callback, app);
-    submenu_add_item(app->submenu, "  Batch Send 50x", 2, replay_menu_callback, app);
-    submenu_add_item(app->submenu, "  Batch Send 100x", 3, replay_menu_callback, app);
-    submenu_add_item(app->submenu, "  Batch Send 500x", 4, replay_menu_callback, app);
-    submenu_add_item(app->submenu, "  Back to Menu", 5, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  鍙戦€佹紨绀?(Kia瑙ｉ攣)", 1, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎵归噺鍙戦€?50娆?, 2, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎵归噺鍙戦€?100娆?, 3, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  鎵归噺鍙戦€?500娆?, 4, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  杩斿洖鑿滃崟", 5, replay_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
-// ===================== 批量发送场景（显示进度） =====================
+// ===================== 鎵归噺鍙戦€佸満鏅紙鏄剧ず杩涘害锛?=====================
 void scene_batch_send_alloc(ProtoPirateApp* app) {
     popup_reset(app->popup);
-    popup_set_header(app->popup, "Batch Send", 42, 16, AlignCenter, AlignCenter);
+    popup_set_header(app->popup, "鎵归噺鍙戦€?, 42, 16, AlignCenter, AlignCenter);
     
     char line[32];
-    snprintf(line, sizeof(line), "Sending %u frames...", app->batch.count);
+    snprintf(line, sizeof(line), "姝ｅ湪鍙戦€?%u 甯?..", app->batch.count);
     popup_set_text(app->popup, line, 42, 36, AlignCenter, AlignCenter);
 
     view_set_previous_callback(popup_get_view(app->popup), back_to_menu_callback);
 }
 
-// ===================== 批量发送配置 =====================
+// ===================== 鎵归噺鍙戦€侀厤缃?=====================
 void scene_batch_config_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "Batch Send");
+    submenu_set_header(app->submenu, "鎵归噺鍙戦€?);
 
-    submenu_add_item(app->submenu, "  50 frames (fast)", 0, rollback_batch_menu_callback, app);
-    submenu_add_item(app->submenu, "  100 frames", 1, rollback_batch_menu_callback, app);
-    submenu_add_item(app->submenu, "  500 frames (full)", 2, rollback_batch_menu_callback, app);
-    submenu_add_item(app->submenu, "  Back", 3, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  50 甯?(蹇€?", 0, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  100 甯?, 1, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  500 甯?(瀹屾暣)", 2, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  杩斿洖", 3, rollback_batch_menu_callback, app);
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
-// ===================== 频率选择 =====================
+// ===================== 棰戠巼閫夋嫨 =====================
 static const uint32_t FREQ_TABLE[] = {315000000, 433920000, 868350000, 300000000, 390000000, 418000000, 868000000, 915000000};
 static const char* FREQ_NAMES[] = {
     "315.00 MHz", "433.92 MHz", "868.35 MHz",
@@ -662,7 +655,7 @@ static void freq_change_callback(VariableItem* item) {
 
 void scene_freq_select_alloc(ProtoPirateApp* app) {
     variable_item_list_reset(app->var_item_list);
-    const char* name = "Frequency";
+    const char* name = "棰戠巼";
     
     VariableItem* freq_item = variable_item_list_add(
         app->var_item_list, name, FREQ_COUNT,
@@ -684,22 +677,22 @@ void scene_info_alloc(ProtoPirateApp* app) {
     widget_add_string_element(app->widget, 64, 2, AlignCenter, AlignTop, FontPrimary,
                               "ProtoPirate TX");
     widget_add_string_element(app->widget, 64, 16, AlignCenter, AlignTop, FontSecondary,
-                              "v2.1 RollBack Edition");
+                              "v2.1 鍥炴粴鐗?);
     widget_add_string_element(app->widget, 64, 28, AlignCenter, AlignTop, FontKeyboard,
-                              "Real RX + OOK Decoder");
+                              "鐪熷疄RX + OOK瑙ｇ爜");
     widget_add_string_element(app->widget, 64, 38, AlignCenter, AlignTop, FontKeyboard,
-                              "10 Protocols Supported");
+                              "鏀寔10绉嶅崗璁?);
     widget_add_string_element(app->widget, 64, 48, AlignCenter, AlignTop, FontKeyboard,
-                              "Batch Send: 50/100/500");
+                              "鎵归噺鍙戦€? 50/100/500");
     widget_add_string_element(app->widget, 64, 58, AlignCenter, AlignTop, FontKeyboard,
-                              "TX: Real CC1101");
+                              "鍙戝皠: 鐪熷疄CC1101");
     widget_add_string_element(app->widget, 64, 68, AlignCenter, AlignTop, FontPrimary,
-                              "BACK = Menu");
+                              "杩斿洖 = 鑿滃崟");
 
     view_set_previous_callback(widget_get_view(app->widget), back_to_menu_callback);
 }
 
-// ===================== 主入口 =====================
+// ===================== 涓诲叆鍙?=====================
 __attribute__((visibility("default"))) int32_t app_main(void* p) {
     UNUSED(p);
 
