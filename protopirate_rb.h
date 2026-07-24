@@ -63,7 +63,7 @@ typedef enum {
     Proto_COUNT,
 } ProtocolType;
 
-static const char* PROTO_NAMES[] = {
+__attribute__((unused)) static const char* PROTO_NAMES[] = {
     "Kia V0", "Kia V1", "Kia V2", "Ford",
     "StarLine", "Subaru", "Fiat", "Chrysler",
     "Honda", "Toyota"
