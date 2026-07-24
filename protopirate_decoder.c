@@ -1,7 +1,7 @@
 #include "protopirate_rb.h"
 #include <math.h>
 
-// ===================== CRC8 (Kia 多项式 0x7F) =====================
+// ===================== CRC8 (Kia  0x7F) =====================
 uint8_t kia_crc8(uint8_t* data, uint8_t len) {
     uint8_t crc = 0;
     for(uint8_t i = 0; i < len; i++) {
@@ -17,7 +17,7 @@ uint8_t kia_crc8(uint8_t* data, uint8_t len) {
     return crc;
 }
 
-// ===================== 按键名称映射 =====================
+// =====================  =====================
 const char* get_button_name(const char* proto, uint8_t btn) {
     if(strstr(proto, "Kia")) {
         if(btn == 1) return "Lock";
@@ -60,9 +60,9 @@ const char* get_button_name(const char* proto, uint8_t btn) {
     return "Btn:??";
 }
 
-// ===================== 通用 OOK 脉冲解析 =====================
-// 输入格式: "123 -456 789..." (正=高电平, 负=低电平)
-// 输出: data_hi/data_lo + 协议类型猜测
+// =====================  OOK  =====================
+// : "123 -456 789..." (=, =)
+// : data_hi/data_lo +
 DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
     if(!raw_str || furi_string_empty(raw_str)) return NULL;
@@ -70,7 +70,7 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
     const char* str = furi_string_get_cstr(raw_str);
     FURI_LOG_I(TAG, "decode_raw_ook: %s", str);
     
-    // 统计脉冲数
+    
     uint16_t count = 0;
     int32_t vals[512];
     int32_t val = 0;
@@ -90,7 +90,7 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
     
     if(count < 16) return NULL;
     
-    // 基础统计
+    
     uint32_t sum_pos = 0, sum_neg = 0;
     uint16_t n_pos = 0, n_neg = 0;
     uint32_t min_dur = 100000, max_dur = 0;
@@ -103,12 +103,12 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
         else { sum_neg += d; n_neg++; }
     }
     
-    // 检查是否是 OOK 调制的滚动码信号
-    // 特征: 短脉冲(~280-560us) + 长脉冲(~520-1200us) 交替
-    uint16_t short_count = 0, long_count = 0;
+    // OOK
+    // : (~280-560us) + (~520-1200us)
+    uint16_t short_count = 0, long_count = 0; (void)short_count; (void)long_count;
     uint32_t avg_short = 0, avg_long = 0;
     
-    // 用聚类法找出两种脉冲长度
+    
     uint32_t total = 0;
     for(uint16_t i = 0; i < count; i++) {
         uint32_t d = abs(vals[i]);
@@ -132,57 +132,57 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
         return NULL;
     }
     
-    // 如果两种脉冲长度差不大，不是滚动码 OOK
+    // OOK
     if(avg_long < avg_short * 1.5 || avg_short < 80) return NULL;
     
-    // 这是一个看起来像 OOK 的信号
-    // 尝试解析成位
+    // OOK
+    
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bits = 0;
     uint16_t threshold = (avg_short + avg_long) / 2;
     
-    // 简单 Manchester-like 解码
-    // 先找导言（同步头）
+    // Manchester-like
+    
     uint16_t bit_start = 0;
     for(uint16_t i = 0; i < count - 3; i++) {
         uint32_t d1 = abs(vals[i]), d2 = abs(vals[i+1]);
         uint32_t d3 = abs(vals[i+2]), d4 = abs(vals[i+3]);
-        // 找高低交替的长序列 = 导言
+        // =
         if(abs((int32_t)(d1 - d4)) < 100 && abs((int32_t)(d2 - d3)) < 100 &&
            d1 > threshold && d2 < threshold && d3 > threshold && d4 < threshold) {
-            if(i > 20) { // 有一定导言长度
+            if(i > 20) { 
                 bit_start = i + 4;
                 break;
             }
         }
     }
     
-    // 如果没有找到清晰导言，从头开始解析
+    
     if(bit_start == 0) bit_start = 4;
     if(bit_start >= count) bit_start = count / 2;
     
-    // 逐位解码
+    
     for(uint16_t i = bit_start; i < count - 1 && bits < 64; i += 2) {
         if(i + 1 >= count) break;
         uint32_t d1 = abs(vals[i]), d2 = abs(vals[i + 1]);
         bool level1 = vals[i] > 0, level2 = vals[i + 1] > 0;
         
         if(!level1 && level2) {
-            // 低转高
+            
             if(d1 < threshold && d2 > threshold) {
-                // 短低+短高 = 0
+                // + = 0
                 if(d1 < avg_long && d2 < avg_long) {
                     data_lo = (data_lo << 1) | 0;
                     bits++;
                 }
             } else if(d1 > threshold && d2 > threshold) {
-                // 长低+长高 = 1
+                // + = 1
                 if(d1 >= avg_short && d2 >= avg_short) {
-                    // 疑似 1
+                    // 1
                 }
             }
         } else if(level1 && !level2) {
-            // 高转低
+            
             if(d1 < threshold && d2 < threshold) {
                 data_lo = (data_lo << 1) | 1;
                 bits++;
@@ -194,7 +194,7 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
         if(bits > 66) break;
     }
     
-    // 不够位就基于原始数据生成 OOK 原始结果
+    // OOK
     DecodeResult* result = malloc(sizeof(DecodeResult));
     memset(result, 0, sizeof(DecodeResult));
     
@@ -205,12 +205,12 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
         result->data_lo = data_lo;
         result->crc_ok = false;
         result->encrypted = true;
-        // 尝试提取 serial 和 counter（粗略）
+        // serial  counter
         uint32_t raw_frame = data_lo;
         result->serial = raw_frame & 0xFFFFF;
         result->counter = (raw_frame >> 20) & 0xFFF;
     } else {
-        // 完全未知 - 标记为 Unknown OOK
+        // -  Unknown OOK
         strncpy(result->proto, "Unknown OOK", sizeof(result->proto));
         result->bits = count;
         result->data_hi = 0;
@@ -224,7 +224,7 @@ DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== Kia V0 (HiTag2 / HCS) 解码 =====================
+// ===================== Kia V0 (HiTag2 / HCS)  =====================
 DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
     if(!raw_str || furi_string_empty(raw_str)) return NULL;
@@ -235,7 +235,7 @@ DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
 
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bit_count = 0;
-    int16_t prev_dur = 0;
+    int16_t prev_dur = 0; (void)prev_dur;
     uint16_t header_count = 0;
     uint8_t step = 0;
     const uint16_t te_short = 260, te_long = 520, te_delta = 120;
@@ -292,7 +292,7 @@ DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
 
     if(bit_count < min_bits) return NULL;
 
-    // HiTag2 帧格式提取
+    // HiTag2
     uint32_t serial = (data_lo >> 12) & 0x0FFFFFFF;
     uint8_t button = (data_lo >> 8) & 0x0F;
     uint16_t counter = ((data_hi << 24) | (data_lo >> 8)) >> 16 & 0xFFFF;
@@ -321,7 +321,7 @@ DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== Ford 解码 =====================
+// ===================== Ford  =====================
 DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
     const char* str = furi_string_get_cstr(raw_str);
@@ -329,10 +329,10 @@ DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str) {
     
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bit_count = 0;
-    int16_t prev_dur = 0;
+    int16_t prev_dur = 0; (void)prev_dur;
     uint8_t step = 0;
     
-    // Ford 通常使用 PWM 调制: bit1 = 600+200, bit0 = 200+600
+    // Ford  PWM : bit1 = 600+200, bit0 = 200+600
     const uint16_t te_short = 200, te_long = 600, te_delta = 100;
     const uint8_t min_bits = 24;
     int32_t val = 0;
@@ -372,7 +372,7 @@ DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str) {
     
     if(bit_count < min_bits) return NULL;
     
-    // Ford 帧: [40-bit滚动码] 包含 serial + counter + button
+    // Ford : [40-bit]  serial + counter + button
     uint32_t serial = data_lo & 0x1FFFFF;
     uint16_t counter = (data_lo >> 21) & 0x7FF;
     uint8_t button = (data_lo >> 6) & 0x0F;
@@ -391,7 +391,7 @@ DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== Subaru 解码 =====================
+// ===================== Subaru  =====================
 DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
     const char* str = furi_string_get_cstr(raw_str);
@@ -399,11 +399,11 @@ DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_str) {
     
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bit_count = 0;
-    bool found = false;
+    bool found = false; (void)found;
     
-    // Subaru: Manchester 编码, 400/800us, 约56位
+    // Subaru: Manchester , 400/800us, 56
     const uint16_t te = 400, te_delta = 100;
-    int32_t val = 0; bool neg = false; int16_t prev = 0; uint8_t ph = 0;
+    int32_t val = 0; bool neg = false; int16_t prev = 0; (void)prev; uint8_t ph = 0;
     uint16_t sync_cnt = 0;
     
     for(const char* p = str; *p; p++) {
@@ -463,21 +463,21 @@ DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== Fiat 解码 =====================
+// ===================== Fiat  =====================
 DecodeResult* decode_fiat(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
     const char* str = furi_string_get_cstr(raw_str);
     if(!str || strlen(str) < 20) return NULL;
     
-    // Fiat: 类似 Chrysler, 使用 PWM 编码
+    // Fiat:  Chrysler,  PWM
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bit_count = 0;
     DecodeResult* result = malloc(sizeof(DecodeResult));
     
-    // 简化解码: 尝试提取 OOK 数据
+    // :  OOK
     int32_t val = 0; bool neg = false;
     uint8_t ph = 0;
-    int16_t prev = 0;
+    int16_t prev = 0; (void)prev;
     const uint16_t te = 300, delta = 100;
     
     for(const char* p = str; *p; p++) {
@@ -518,16 +518,16 @@ DecodeResult* decode_fiat(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== Chrysler 解码 =====================
+// ===================== Chrysler  =====================
 DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
     const char* str = furi_string_get_cstr(raw_str);
     if(!str || strlen(str) < 20) return NULL;
     
-    // Chrysler: PWM 编码, 约 60-66 位
+    // Chrysler: PWM ,  60-66
     uint32_t data_hi = 0, data_lo = 0;
     uint16_t bit_count = 0;
-    int32_t val = 0; bool neg = false; uint8_t ph = 0; int16_t prev = 0;
+    int32_t val = 0; bool neg = false; uint8_t ph = 0; int16_t prev = 0; (void)prev;
     const uint16_t te = 300, delta = 80;
     
     for(const char* p = str; *p; p++) {
@@ -546,7 +546,7 @@ DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_str) {
                 if(lv) {
                     uint16_t total = prev + ad;
                     if(abs((int16_t)(total - te*2)) < delta*2) {
-                        // bit 取决于高电平宽度
+                        // bit
                         if(abs((int16_t)(ad - te)) < delta) { data_lo = (data_lo<<1)|0; bit_count++; }
                         else if(abs((int16_t)(ad - te*2)) < delta) { data_lo = (data_lo<<1)|1; bit_count++; }
                         ph = 1;
@@ -573,11 +573,11 @@ DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== StarLine 解码 =====================
+// ===================== StarLine  =====================
 DecodeResult* decode_starline(ProtoPirateApp* app, FuriString* raw_str) {
     UNUSED(app);
-    // StarLine: 通常使用加密滚动码, 带回传
-    // 占位 - 返回基本识别
+    // StarLine: ,
+    // -
     const char* str = furi_string_get_cstr(raw_str);
     if(!str || strlen(str) < 30) return NULL;
     
@@ -595,8 +595,8 @@ DecodeResult* decode_starline(ProtoPirateApp* app, FuriString* raw_str) {
     return result;
 }
 
-// ===================== 主解码入口 =====================
-// 按优先级尝试所有支持的协议
+// =====================  =====================
+
 DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data) {
     if(!raw_data || furi_string_empty(raw_data)) return NULL;
     
@@ -604,7 +604,7 @@ DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data) {
     
     DecodeResult* result = NULL;
     
-    // 协议解码（按优先级）
+    
     result = decode_kia_v0(app, raw_data);
     if(result) { FURI_LOG_I(TAG, "Decoded: Kia V0"); return result; }
     
@@ -623,7 +623,7 @@ DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data) {
     result = decode_starline(app, raw_data);
     if(result) { FURI_LOG_I(TAG, "Decoded: StarLine"); return result; }
     
-    // 回退: 通用 OOK 解析
+    // :  OOK
     result = decode_raw_ook(app, raw_data);
     if(result) { FURI_LOG_I(TAG, "Decoded: Raw OOK"); return result; }
     
