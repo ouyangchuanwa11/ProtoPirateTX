@@ -1,32 +1,29 @@
 name: Build ProtoPirateTX FAP
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install ufbt
-        run: pip install ufbt
-
-      - name: Build with ufbt
+        run: |
+          pip install ufbt
+          ufbt setup
+      - name: Build
         run: |
           cd ProtoPirateTX
           ufbt
-
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: ProtoPirateTX
-          path: ProtoPirateTX/build/**/*.fap
+          path: |
+            ProtoPirateTX/build/**/*.fap
+            ProtoPirateTX/dist/**/*.fap
+          if-no-files-found: ignore
