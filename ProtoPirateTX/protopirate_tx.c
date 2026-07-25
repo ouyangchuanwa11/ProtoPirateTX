@@ -81,7 +81,7 @@ static int32_t tx_thread_worker(void* context) {
     FURI_LOG_I(TAG, "TX freq=%lu reps=%u", app->tx_freq, app->tx_repeats);
     
     subghz_devices_begin(g_device);
-    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650, NULL);
+    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650Async, NULL);
     subghz_devices_set_frequency(g_device, app->tx_freq);
     subghz_devices_set_tx(g_device);
     furi_delay_ms(50);
@@ -116,7 +116,7 @@ bool tx_init_hw(ProtoPirateApp* app, uint32_t freq) {
     UNUSED(app);
     if(!g_device) return false;
     subghz_devices_begin(g_device);
-    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650, NULL);
+    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650Async, NULL);
     subghz_devices_set_frequency(g_device, freq);
     furi_delay_ms(10);
     return true;
@@ -170,7 +170,7 @@ bool transmit_packet(ProtoPirateApp* app, uint32_t dhi, uint32_t dlo, uint32_t f
 void transmit_start(ProtoPirateApp* app, uint32_t freq) {
     if(!g_device || !app) return;
     subghz_devices_begin(g_device);
-    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650, NULL);
+    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650Async, NULL);
     subghz_devices_set_frequency(g_device, freq);
     furi_delay_ms(10);
 }
@@ -209,7 +209,7 @@ bool transmit_raw(ProtoPirateApp* app, FuriString* raw_data, uint32_t freq, uint
     if(!str || strlen(str) < 5) return false;
     
     subghz_devices_begin(g_device);
-    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650, NULL);
+    subghz_devices_load_preset(g_device, FuriHalSubGhzPresetOok650Async, NULL);
     subghz_devices_set_frequency(g_device, freq);
     
     for(uint8_t r = 0; r < repeats; r++) {
