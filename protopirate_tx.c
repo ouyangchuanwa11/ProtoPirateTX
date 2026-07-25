@@ -7,7 +7,8 @@
 #undef TAG
 #define TAG "ProtoPirateTX"
 
-const SubGhzDevice* g_device = NULL;
+typedef struct SubGhzDevice SubGhzDevice;
+static const SubGhzDevice* g_device = NULL;
 
 typedef struct {
     uint32_t data[2];
