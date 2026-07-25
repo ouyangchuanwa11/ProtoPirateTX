@@ -198,6 +198,3 @@ void protopirate_scene_about_on_exit(void* context);
 /***** Batch Functions *****/
 void batch_send_start(ProtoPirateApp* app);
 void batch_send_stop(ProtoPirateApp* app);
-
-/***** External device ref *****/
-extern const struct SubGhzDevice* g_device;
