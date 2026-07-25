@@ -1,251 +1,237 @@
 #pragma once
 
 #include <furi.h>
-#include <lib/subghz/devices/devices.h>
-#include <furi_hal.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
+#include <gui/scene_manager.h>
 #include <gui/modules/submenu.h>
-#include <gui/modules/variable_item_list.h>
-#include <gui/modules/text_box.h>
 #include <gui/modules/widget.h>
-#include <gui/modules/popup.h>
-#include <gui/modules/button_menu.h>
-#include <gui/modules/loading.h>
+#include <gui/modules/text_input.h>
+#include <gui/modules/variable_item_list.h>
 #include <gui/modules/dialog_ex.h>
-#include <input/input.h>
-#include <lib/subghz/protocols/protocol_items.h>
-#include <flipper_format/flipper_format.h>
-#include <toolbox/stream/file_stream.h>
-#include <toolbox/level_duration.h>
+#include <notification/notification_messages.h>
+#include <lib/subghz/protocols/raw.h>
+#include <lib/subghz/devices/cc1101_configs.h>
+#include <lib/subghz/devices/devices.h>
 
+// ===================== Constants =====================
 #define TAG "ProtoPirateRB"
-#define MAX_HISTORY 30
-#define FREQ_315   315000000
-#define FREQ_433   433920000
-#define FREQ_868   868350000
-#define DEFAULT_FREQ FREQ_433
-#define ROLLBACK_BURST_DEFAULT 3
-#define RX_TIMEOUT_MS 30000
-#define ROLLBACK_LIMIT 0xFFFF
-#define MAX_BATCH_SIZE 500
-#define MIN_COUNTER 0
-#define MAX_COUNTER 0xFFFF
+#define PROTOPIRATE_RB_VERSION "3.1"
+#define PROTOPIRATE_RB_AUTHOR "ProtoPirate RB"
 
-// ============ 事件类型枚举 ============
-typedef enum {
-    EventGoMenu = 100,
-    EventReceive,
-    EventRollback,
-    EventReplay,
-    EventFreqSelect,
-    EventInfo,
-    EventReceiveDone,
-    EventRollbackRun,
-    EventRollbackToggle,
-    EventRollbackConfig,
-    EventBatchSend,
-    EventBatchConfig,
-} AppCustomEvent;
+// Max protocols we support
+#define MAX_PROTOCOLS 32
+#define MAX_BTN_ACTIONS 8
 
-// ============ 支持的协议 ============
+// ===================== Protocol Type Enum =====================
 typedef enum {
     Proto_Kia_V0 = 0,
     Proto_Kia_V1,
     Proto_Kia_V2,
     Proto_Ford,
-    Proto_Starline,
     Proto_Subaru,
     Proto_Fiat,
     Proto_Chrysler,
     Proto_Honda,
     Proto_Toyota,
-    Proto_COUNT,
-} ProtocolType;
+    Proto_Starline,
+    Proto_BFT,
+    Proto_Unknown = 99
+} ProtoType;
 
-__attribute__((unused)) static const char* PROTO_NAMES[] = {
-    "Kia V0", "Kia V1", "Kia V2", "Ford",
-    "StarLine", "Subaru", "Fiat", "Chrysler",
-    "Honda", "Toyota"
-};
-
-// ============ 解码结果 ============
+// ===================== Button Action =====================
 typedef struct {
-    char proto[20];
+    uint8_t btn_id;
+    char btn_name[16];
+} BtnAction;
+
+// ===================== Rollback State =====================
+typedef struct {
+    char proto[32];
+    uint8_t protocol_type;
+    uint32_t serial;
+    uint8_t button;
+    uint16_t base_counter;
+    uint16_t target_counter;
+    uint16_t current_counter;
+    uint16_t step_size;
+    uint8_t burst_count;
+    bool running;
+    uint32_t total_sent;
+    bool bidirectional;
+} RollbackState;
+
+// ===================== Decode Result =====================
+typedef struct {
+    char proto[32];
     uint8_t bits;
     uint32_t data_hi;
     uint32_t data_lo;
     uint32_t serial;
     uint8_t button;
     char btn_name[16];
-    uint16_t counter;
-    bool crc_ok;
+    uint32_t counter;
     bool encrypted;
-    bool is_demo;
 } DecodeResult;
 
-// ============ 历史条目 ============
+// ===================== Batch State =====================
 typedef struct {
-    DecodeResult result;
-    FuriString* raw_data;
-    uint32_t frequency;
-    char preset[20];
-} HistoryItem;
-
-// ============ RollBack状态 ============
-typedef struct {
-    bool running;
-    uint16_t base_counter;
-    uint16_t target_counter;
-    uint16_t current_counter;
-    uint16_t step_size;
-    uint8_t button;
-    uint32_t serial;
-    char proto[20];
-    uint8_t protocol_type;
-    uint32_t data_hi;
-    uint32_t data_lo;
-    bool found;
-    uint8_t burst_count;
-    uint32_t counter_limit;
-    uint32_t total_sent;
-} RollbackState;
-
-// ============ 批量发送配置 ============
-typedef struct {
-    uint8_t count;    // 50, 100, 500
-    bool active;
+    uint32_t count;
     uint32_t sent_so_far;
-} BatchConfig;
+    bool active;
+} BatchState;
 
-// ============ 应用结构体 ============
+// ===================== Protocol Info =====================
 typedef struct {
-    Gui* gui;
-    ViewDispatcher* view_dispatcher;
-    Submenu* submenu;
-    VariableItemList* var_item_list;
-    TextBox* text_box;
-    Widget* widget;
-    ButtonMenu* button_menu;
-    Popup* popup;
-    DialogEx* dialog;
-    
-    uint32_t frequency;
-    HistoryItem history[MAX_HISTORY];
-    uint8_t history_count;
-    DecodeResult last_result;
-    FuriString* last_raw;
-    FuriString* last_raw_hex;
-    RollbackState rollback;
-    BatchConfig batch;
+    char proto[32];
+    uint8_t proto_type;
+    uint32_t freq;
+    uint32_t sample_count;
+} ProtoInfo;
 
-    uint32_t scene;
-    uint32_t submenu_index;
-    uint32_t result_menu_index;
-    uint32_t counter; // 通用计数器
-    
-    // RX 状态
-    bool rx_running;
-    bool rx_captured;
-    
-    // 脉冲捕获缓冲区
-    int32_t pulse_buffer[4096];
-    uint16_t pulse_count;
-    
-    // TX 线程参数
-    uint32_t tx_freq;
+// ===================== App Scenes =====================
+typedef enum {
+    ProtoPirateSceneMainMenu,
+    ProtoPirateSceneDecode,
+    ProtoPirateSceneDecodeResult,
+    ProtoPirateSceneRollbackConfig,
+    ProtoPirateSceneRollbackRun,
+    ProtoPirateSceneBatchConfig,
+    ProtoPirateSceneBatchRun,
+    ProtoPirateSceneTXRaw,
+    ProtoPirateSceneTXCustom,
+    ProtoPirateSceneAbout,
+    ProtoPirateSceneCount
+} ProtoPirateScene;
+
+typedef enum {
+    ProtoPirateViewSubmenu,
+    ProtoPirateViewWidget,
+    ProtoPirateViewTextInput,
+    ProtoPirateViewVariableItemList,
+    ProtoPirateViewDialog,
+} ProtoPirateView;
+
+// ===================== Main App =====================
+typedef struct {
+    // Core
+    SceneManager* scene_manager;
+    ViewDispatcher* view_dispatcher;
+    NotificationApp* notifications;
+
+    // Views
+    Submenu* submenu;
+    Widget* widget;
+    TextInput* text_input;
+    VariableItemList* variable_item_list;
+    DialogEx* dialog;
+
+    // TX
     uint32_t tx_data_hi;
     uint32_t tx_data_lo;
+    uint32_t tx_freq;
     uint8_t tx_repeats;
-    
-    // 配置临时存储
-    int32_t config_temp;
+    bool tx_busy;
+
+    // Frequency
+    uint32_t frequency;
+
+    // Current decode result
+    DecodeResult last_result;
+
+    // Captured raw signal
+    FuriString* captured_signal;
+
+    // Rollback state
+    RollbackState rollback;
+
+    // Batch state
+    BatchState batch;
+
+    // Protocol list
+    ProtoInfo protocols[MAX_PROTOCOLS];
+    uint8_t protocol_count;
+
+    // UI strings
+    FuriString* info_str;
+
+    // Current scene tracking for callbacks
+    uint32_t current_scene;
 } ProtoPirateApp;
 
-// ============ 场景定义 ============
-typedef enum {
-    SceneMainMenu,
-    SceneReceive,
-    SceneResult,
-    SceneRollback,
-    SceneRollbackConfig,
-    SceneReplay,
-    SceneFreqSelect,
-    SceneBatchSend,
-    SceneBatchConfig,
-    SceneInfo,
-} AppScene;
-
-// ============ 视图ID ============
-typedef enum {
-    ViewMenu = 0,
-    ViewWidget,
-    ViewVarList,
-    ViewTextBox,
-    ViewButtonMenu,
-    ViewPopup,
-    ViewLoading,
-    ViewDialog,
-} AppViewId;
-
-// ============ 函数声明 ============
-ProtoPirateApp* protoPirateApp_alloc(void);
-void protoPirateApp_free(ProtoPirateApp* app);
-__attribute__((visibility("default"))) int32_t app_main(void* p);
-
-// 场景
-void scene_main_menu_alloc(ProtoPirateApp* app);
-void scene_receive_alloc(ProtoPirateApp* app);
-void scene_result_main_alloc(ProtoPirateApp* app);
-void scene_rollback_alloc(ProtoPirateApp* app);
-void scene_rollback_config_alloc(ProtoPirateApp* app);
-void scene_replay_alloc(ProtoPirateApp* app);
-void scene_freq_select_alloc(ProtoPirateApp* app);
-void scene_batch_send_alloc(ProtoPirateApp* app);
-void scene_batch_config_alloc(ProtoPirateApp* app);
-void scene_info_alloc(ProtoPirateApp* app);
-
-// 真正 RX 捕获
-bool rx_start_capture(ProtoPirateApp* app);
-void rx_stop_capture(ProtoPirateApp* app);
-FuriString* rx_format_capture(ProtoPirateApp* app);
-
-// 解码器
+// ===================== Decoder Functions =====================
 DecodeResult* decode_signal(ProtoPirateApp* app, FuriString* raw_data);
-DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_str);
-DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_str);
-DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_str);
-DecodeResult* decode_fiat(ProtoPirateApp* app, FuriString* raw_str);
-DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_str);
-DecodeResult* decode_starline(ProtoPirateApp* app, FuriString* raw_str);
-DecodeResult* decode_raw_ook(ProtoPirateApp* app, FuriString* raw_str);
+DecodeResult* decode_kia_v0(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_kia_v1(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_kia_v2(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_ford(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_subaru(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_fiat(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_chrysler(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_honda(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_toyota(ProtoPirateApp* app, FuriString* raw_data);
+DecodeResult* decode_starline(ProtoPirateApp* app, FuriString* raw_data);
+uint8_t kia_crc8(uint8_t* data, uint8_t len);
+const char* get_button_name(const char* proto, uint8_t btn);
 
-// TX
+// ===================== TX Functions =====================
+bool tx_device_init(void);
+void tx_device_deinit(void);
 bool tx_init_hw(ProtoPirateApp* app, uint32_t freq);
-bool transmit_raw(ProtoPirateApp* app, FuriString* raw_data, uint32_t freq, uint8_t repeats);
-bool transmit_packet(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo, uint32_t freq, uint8_t repeats);
-void transmit_packet_nonblock(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo, uint32_t freq, uint8_t repeats);
+bool transmit_packet(ProtoPirateApp* app, uint32_t dhi, uint32_t dlo, uint32_t freq, uint8_t rep);
+void transmit_packet_nonblock(ProtoPirateApp* app, uint32_t dhi, uint32_t dlo, uint32_t freq, uint8_t rep);
+void transmit_packet_wait(ProtoPirateApp* app);
+void transmit_packet_stop(ProtoPirateApp* app);
 void transmit_start(ProtoPirateApp* app, uint32_t freq);
 void transmit_burst(ProtoPirateApp* app, uint32_t data_hi, uint32_t data_lo);
 void transmit_stop(ProtoPirateApp* app);
-void transmit_packet_stop(ProtoPirateApp* app);
-void transmit_packet_wait(ProtoPirateApp* app);
+bool transmit_raw(ProtoPirateApp* app, FuriString* raw_data, uint32_t freq, uint8_t repeats);
 
-// 连续批量发送
-void batch_send_start(ProtoPirateApp* app);
-bool batch_send_next(ProtoPirateApp* app);
-void batch_send_stop(ProtoPirateApp* app);
-
-// RollBack引擎
-bool rollback_attack_run(ProtoPirateApp* app);
-bool rollback_send_single(ProtoPirateApp* app, uint32_t serial, uint8_t button, uint16_t counter);
+// ===================== Rollback Functions =====================
 void rollback_build_frame(uint32_t serial, uint8_t button, uint32_t counter, uint32_t* data_hi, uint32_t* data_lo);
-void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t button, 
-                                 uint32_t counter, uint32_t* data_hi, uint32_t* data_lo);
+void rollback_build_frame_proto(uint8_t proto_type, uint32_t serial, uint8_t button, uint32_t counter, uint32_t* data_hi, uint32_t* data_lo);
+bool rollback_send_single(ProtoPirateApp* app, uint32_t serial, uint8_t button, uint16_t counter);
+bool rollback_attack_run(ProtoPirateApp* app);
+bool rollback_bidirectional_attack(ProtoPirateApp* app);
+uint8_t rollback_crc8_compute(uint8_t* data, uint8_t len);
 uint8_t rollback_get_button_value(uint8_t proto_type, uint8_t btn_idx);
 
-// CRC
-uint8_t kia_crc8(uint8_t* data, uint8_t len);
+// ===================== Scene Handlers =====================
+void protopirate_rb_app(void* p);
+void protopirate_scene_main_menu_on_enter(void* context);
+bool protopirate_scene_main_menu_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_main_menu_on_exit(void* context);
+void protopirate_scene_decode_on_enter(void* context);
+bool protopirate_scene_decode_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_decode_on_exit(void* context);
+void protopirate_scene_decode_result_on_enter(void* context);
+bool protopirate_scene_decode_result_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_decode_result_on_exit(void* context);
+void protopirate_scene_rollback_config_on_enter(void* context);
+bool protopirate_scene_rollback_config_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_rollback_config_on_exit(void* context);
+void protopirate_scene_rollback_run_on_enter(void* context);
+bool protopirate_scene_rollback_run_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_rollback_run_on_exit(void* context);
+void protopirate_scene_batch_config_on_enter(void* context);
+bool protopirate_scene_batch_config_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_batch_config_on_exit(void* context);
+void protopirate_scene_batch_run_on_enter(void* context);
+bool protopirate_scene_batch_run_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_batch_run_on_exit(void* context);
+void protopirate_scene_tx_raw_on_enter(void* context);
+bool protopirate_scene_tx_raw_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_tx_raw_on_exit(void* context);
+void protopirate_scene_tx_custom_on_enter(void* context);
+bool protopirate_scene_tx_custom_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_tx_custom_on_exit(void* context);
+void protopirate_scene_about_on_enter(void* context);
+bool protopirate_scene_about_on_event(void* context, SceneManagerEvent event);
+void protopirate_scene_about_on_exit(void* context);
 
-// 工具函数
-const char* get_button_name(const char* proto, uint8_t btn);
+// ===================== Batch Functions =====================
+void batch_send_start(ProtoPirateApp* app);
+void batch_send_stop(ProtoPirateApp* app);
+
+// ===================== External device ref =====================
+extern const SubGhzDevice* g_device;

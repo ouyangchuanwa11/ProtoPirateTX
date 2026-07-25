@@ -1,2194 +1,642 @@
 #include "protopirate_rb.h"
 
-
-#include <furi_hal_subghz.h>
-
-
-#include <lib/subghz/devices/cc1101_configs.h>
-
-
-#include <lib/subghz/devices/devices.h>
-
-
-#include <furi_hal_gpio.h>
-
-
-#include <furi_hal_spi.h>
-
-
-#include <furi_hal_power.h>
-
-
-
-
-
-// =====================        SubGhz        =====================
-
-
-static const SubGhzDevice* g_subghz_device = NULL;
-
-
-
-
-
-static bool subghz_open(void) {
-
-
-    if(g_subghz_device) return true;
-
-
-    g_subghz_device = subghz_devices_get_by_name("cc1101_int");
-
-
-    return (g_subghz_device != NULL);
-
-
+// ===================== Scene Handlers =====================
+static void scene_manager_init(ProtoPirateApp* app) {
+    app->scene_manager = scene_manager_alloc(&protopirate_scene_handlers, app);
 }
 
-
-
-
-
-static void subghz_close(void) {
-
-
-    if(g_subghz_device) {
-
-
-        subghz_devices_end(g_subghz_device);
-
-
-        g_subghz_device = NULL;
-
-
-    }
-
-
-}
-
-
-
-
-
-// =====================              =====================
-
-
-static void __attribute__((unused)) result_button_callback(void* context, int32_t index, InputType type) {
-
-
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app || type != InputTypePress) return;
-
-
-
-
-
-    switch(index) {
-
-
-    case 0: // Send x3
-
-
-        transmit_packet(app, app->last_result.data_hi,
-
-
-            app->last_result.data_lo, app->frequency, 3);
-
-
-        break;
-
-
-    case 1: // Send x5
-
-
-        transmit_packet(app, app->last_result.data_hi,
-
-
-            app->last_result.data_lo, app->frequency, 5);
-
-
-        break;
-
-
-    case 2: // Send x10
-
-
-        transmit_packet(app, app->last_result.data_hi,
-
-
-            app->last_result.data_lo, app->frequency, 10);
-
-
-        break;
-
-
-    case 3: // Batch Send
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchConfig);
-
-
-        break;
-
-
-    case 4: // RollBack Attack
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventRollback);
-
-
-        break;
-
-
-    case 5: // Back to menu
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
-
-
-        break;
-
-
-    }
-
-
-}
-
-
-
-
-
-// ===================== Submenu              =====================
-
-
-static void rollback_menu_callback(void* context, uint32_t index) {
-
-
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app) return;
-
-
-    switch(index) {
-
-
-    case 0: // Start ATTACK now
-
-
-        app->rollback.running = true;
-
-
-        app->rollback.current_counter = app->rollback.base_counter;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventRollbackToggle);
-
-
-        break;
-
-
-    case 1: // Config
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventRollbackConfig);
-
-
-        break;
-
-
-    case 2: // Batch 50
-
-
-        app->batch.count = 50;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 3: // Batch 100
-
-
-        app->batch.count = 100;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 4: // Batch 500
-
-
-        app->batch.count = (uint8_t)244;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 5: // Back
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
-
-
-        break;
-
-
-    }
-
-
-}
-
-
-static void rollback_batch_menu_callback(void* context, uint32_t index) {
-
-
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app) return;
-
-
-    switch(index) {
-
-
-    case 0:
-
-
-        app->batch.count = 50;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 1:
-
-
-        app->batch.count = 100;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 2:
-
-
-        app->batch.count = (uint8_t)244;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 3:
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
-
-
-        break;
-
-
-    }
-
-
-}
-
-
-
-
-
-static void __attribute__((unused)) replay_menu_callback(void* context, uint32_t index) {
-
-
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app) return;
-
-
-    switch(index) {
-
-
-    case 0: // Replay
-
-
-        if(app->last_result.bits > 0 && !app->last_result.is_demo) {
-
-
-            transmit_packet(app, app->last_result.data_hi,
-
-
-                app->last_result.data_lo, app->frequency, 5);
-
-
-        } else {
-
-
-            uint32_t hi, lo;
-
-
-            rollback_build_frame_proto(app->rollback.protocol_type,
-
-
-                app->rollback.serial, app->rollback.button,
-
-
-                app->rollback.base_counter, &hi, &lo);
-
-
-            transmit_packet(app, hi, lo, app->frequency, 5);
-
-
-        }
-
-
-        break;
-
-
-    case 1: // Demo frame
-
-
-        {
-
-
-            uint32_t hi, lo;
-
-
-            rollback_build_frame_proto(app->rollback.protocol_type,
-
-
-                0x1234567, 2, 0x100, &hi, &lo);
-
-
-            transmit_packet(app, hi, lo, app->frequency, 5);
-
-
-        }
-
-
-        break;
-
-
-    case 2: // Batch 50
-
-
-        app->batch.count = 50;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 3: // Batch 100
-
-
-        app->batch.count = 100;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 4: // Batch 500
-
-
-        app->batch.count = (uint8_t)244;
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventBatchSend);
-
-
-        break;
-
-
-    case 5: // Back
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
-
-
-        break;
-
-
-    }
-
-
-}
-
-
-
-
-
-// ===================== Capture              =====================
-
-
-static void receive_menu_callback(void* context, uint32_t index) {
-
-
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app) return;
-
-
-
-
-
-    switch(index) {
-
-
-    case 0: // Capture Now (       RX       )
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewLoading);
-
-
-        if(rx_start_capture(app)) {
-
-
-            FURI_LOG_I(TAG, "RX capture started on %lu Hz", app->frequency);
-
-
-            //                                   last_result
-
-
-            FuriString* captured = rx_format_capture(app);
-
-
-            if(captured) {
-
-
-                DecodeResult* dec = decode_signal(app, captured);
-
-
-                if(dec) {
-
-
-                    memcpy(&app->last_result, dec, sizeof(DecodeResult));
-
-
-                    free(dec);
-
-
-                } else {
-
-
-                    app->last_result.bits = 0;
-
-
-                    app->last_result.is_demo = false;
-
-
-                }
-
-
-                furi_string_set(app->last_raw, captured);
-
-
-                furi_string_free(captured);
-
-
-            }
-
-
-            rx_stop_capture(app);
-
-
-            view_dispatcher_send_custom_event(app->view_dispatcher, EventReceiveDone);
-
-
-        } else {
-
-
-            // RX                               
-
-
-            app->last_result.bits = 64;
-
-
-            app->last_result.serial = 0x1234567;
-
-
-            app->last_result.button = 2;
-
-
-            strncpy(app->last_result.btn_name, "Unlock", sizeof(app->last_result.btn_name));
-
-
-            strncpy(app->last_result.proto, "Kia V0", sizeof(app->last_result.proto));
-
-
-            app->last_result.counter = 0xABCD;
-
-
-            app->last_result.crc_ok = true;
-
-
-            app->last_result.is_demo = true;
-
-
-            rollback_build_frame(0x1234567, 2, 0xABCD,
-
-
-                &app->last_result.data_hi, &app->last_result.data_lo);
-
-
-            app->rollback.serial = app->last_result.serial;
-
-
-            app->rollback.button = app->last_result.button;
-
-
-            app->rollback.base_counter = app->last_result.counter;
-
-
-            strncpy(app->rollback.proto, app->last_result.proto, sizeof(app->rollback.proto));
-
-
-            view_dispatcher_send_custom_event(app->view_dispatcher, EventReceiveDone);
-
-
-        }
-
-
-        break;
-
-
-    case 1: // Return
-
-
-        view_dispatcher_send_custom_event(app->view_dispatcher, EventGoMenu);
-
-
-        break;
-
-
-    }
-
-
-}
-
-
-
-
-
-// "TX: Real CC1101"==============
-
-
-//        SubGhz              RSSI             
-
-
-static const uint32_t rx_sample_us = 50; // 50us             
-
-
-static const uint32_t rx_max_samples = 50000; // Max 2.5s
-
-
-static const int16_t rssi_threshold = -60; // RSSI threshold
-
-
-
-
-
-bool rx_start_capture(ProtoPirateApp* app) {
-
-
-    if(!app) return false;
-
-
-    if(!subghz_open()) {
-
-
-        FURI_LOG_E(TAG, "Failed to open SubGhz device");
-
-
-        return false;
-
-
-    }
-
-
-    
-
-
-    app->rx_running = true;
-
-
-    app->pulse_count = 0;
-    // Local sample params
-    const int32_t rx_sample_us = 50;
-    const int32_t rx_max_samples = 50000;
-    const int16_t rssi_threshold = -60;
-
-
-    
-
-
-    FURI_LOG_I(TAG, "RX start: freq=%lu", app->frequency);
-
-
-    
-
-
-    (void)0;
-
-
-    subghz_devices_begin(g_subghz_device);
-
-
-    subghz_devices_load_preset(g_subghz_device, FuriHalSubGhzPresetOok650Async, NULL);
-
-
-    subghz_devices_set_frequency(g_subghz_device, app->frequency);
-
-
-    
-
-
-    //                            
-
-
-    subghz_devices_set_rx(g_subghz_device);
-
-
-    
-
-
-    furi_delay_ms(10);
-
-
-    
-
-
-
-
-
-    uint32_t samples_taken = 0;
-
-
-    bool last_level = false;
-
-
-    uint32_t pulse_dur = 0;
-
-
-
-
-
-    
-
-
-    while(app->rx_running && samples_taken < rx_max_samples) {
-
-
-        int16_t rssi = subghz_devices_get_rssi(g_subghz_device);
-
-
-        bool level = (rssi > rssi_threshold);
-
-
-        
-
-
-        if(level != last_level) {
-
-
-            if(pulse_dur > 0 && app->pulse_count < 4096) {
-
-
-                int32_t signed_dur = pulse_dur * (int32_t)rx_sample_us;
-
-
-                app->pulse_buffer[app->pulse_count++] = last_level ? signed_dur : -signed_dur;
-
-
-            }
-
-
-            pulse_dur = 0;
-
-
-            last_level = level;
-
-
-        }
-
-
-        pulse_dur++;
-
-
-        samples_taken++;
-
-
-        
-
-
-        furi_delay_us(rx_sample_us);
-
-
-    }
-
-
-    
-
-
-    //                         
-
-
-    if(pulse_dur > 0 && app->pulse_count < 4096) {
-
-
-        int32_t signed_dur = pulse_dur * (int32_t)rx_sample_us;
-
-
-        app->pulse_buffer[app->pulse_count++] = last_level ? signed_dur : -signed_dur;
-
-
-    }
-
-
-    
-
-
-    subghz_devices_idle(g_subghz_device);
-
-
-    subghz_devices_end(g_subghz_device);
-
-
-    
-
-
-    app->rx_running = false;
-
-
-    app->rx_captured = (app->pulse_count > 10);
-
-
-    
-
-
-    FURI_LOG_I(TAG, "RX done: %u pulses captured in %lu samples", app->pulse_count, samples_taken);
-
-
-    return app->rx_captured;
-
-
-}
-
-
-
-
-
-void rx_stop_capture(ProtoPirateApp* app) {
-
-
-    app->rx_running = false;
-
-
-}
-
-
-
-
-
-FuriString* rx_format_capture(ProtoPirateApp* app) {
-
-
-    if(!app || app->pulse_count == 0) return NULL;
-
-
-    
-
-
-    FuriString* result = furi_string_alloc();
-
-
-    
-
-
-    //       : "123 -456 789 ..."
-
-
-    for(uint16_t i = 0; i < app->pulse_count; i++) {
-
-
-        furi_string_cat_printf(result, "%ld ", app->pulse_buffer[i]);
-
-
-    }
-
-
-    
-
-
-    FURI_LOG_I(TAG, "rx_format: %s", furi_string_get_cstr(result));
-
-
-    return result;
-
-
-}
-
-
-
-
-
-// =====================                       =====================
-
-
-static bool custom_event_callback(void* context, uint32_t event) {
-
-
-    ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app) return false;
-
-
-
-
-
-    switch(event) {
-
-
-    case EventGoMenu:
-
-
-        scene_main_menu_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    case EventReceive:
-
-
-        scene_receive_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    case EventRollback:
-
-
-        scene_rollback_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    case EventRollbackConfig:
-
-
-        scene_rollback_config_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewVarList);
-
-
-        return true;
-
-
-    case EventReplay:
-
-
-        scene_replay_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    case EventFreqSelect:
-
-
-        scene_freq_select_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewVarList);
-
-
-        return true;
-
-
-    case EventInfo:
-
-
-        scene_info_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewWidget);
-
-
-        return true;
-
-
-    case EventReceiveDone:
-
-
-        scene_result_main_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewButtonMenu);
-
-
-        return true;
-
-
-    case EventRollbackToggle:
-
-
-        scene_rollback_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    case EventBatchConfig:
-
-
-        scene_batch_config_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    case EventBatchSend:
-
-
-        scene_batch_send_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewLoading);
-
-
-        batch_send_start(app);
-
-
-        scene_main_menu_alloc(app);
-
-
-        view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
-        return true;
-
-
-    default:
-
-
-        return false;
-
-
-    }
-
-
-}
-
-
-
-
-
-// =====================              =====================
-
-
-static uint32_t back_to_menu_callback(void* context) {
-
-
-    UNUSED(context);
-
-
-    return ViewMenu;
-
-
-}
-
-
-
-
-
-static bool nav_event_callback(void* context) {
-
-
-    UNUSED(context);
-
-
-    return false;
-
-
-}
-
-
-
-
-
-// =====================              =====================
-
-
-ProtoPirateApp* protoPirateApp_alloc(void) {
-
-
-    ProtoPirateApp* app = malloc(sizeof(ProtoPirateApp));
-
-
-    if(!app) return NULL;
-
-
-    memset(app, 0, sizeof(ProtoPirateApp));
-
-
-
-
-
-    app->gui = furi_record_open(RECORD_GUI);
-
-
+// ===================== View Dispatcher =====================
+static void view_dispatcher_init(ProtoPirateApp* app) {
     app->view_dispatcher = view_dispatcher_alloc();
-
-
-    view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
-
-
-
-
-
-    view_dispatcher_set_custom_event_callback(app->view_dispatcher, custom_event_callback);
-
-
-    view_dispatcher_set_navigation_event_callback(app->view_dispatcher, nav_event_callback);
-
-
-    view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
-
-
-
-
-
-    app->submenu = submenu_alloc();
-
-
-    app->var_item_list = variable_item_list_alloc();
-
-
-    app->text_box = text_box_alloc();
-
-
-    app->widget = widget_alloc();
-
-
-    app->button_menu = button_menu_alloc();
-
-
-    app->popup = popup_alloc();
-
-
-
-
-
-    app->frequency = DEFAULT_FREQ;
-
-
-    app->scene = SceneMainMenu;
-
-
-    app->history_count = 0;
-
-
-    app->last_raw = furi_string_alloc();
-
-
-    app->last_raw_hex = furi_string_alloc();
-
-
-
-
-
-    memset(&app->last_result, 0, sizeof(DecodeResult));
-
-
-    strncpy(app->last_result.proto, "None", sizeof(app->last_result.proto));
-
-
-
-
-
-    // RollBack             
-
-
-    app->rollback.base_counter = 0;
-
-
-    app->rollback.target_counter = 100;
-
-
-    app->rollback.step_size = 1;
-
-
-    app->rollback.burst_count = ROLLBACK_BURST_DEFAULT;
-
-
-    app->rollback.running = false;
-
-
-    app->rollback.current_counter = 0;
-
-
-    app->rollback.serial = 0x1234567;
-
-
-    app->rollback.button = 2;
-
-
-    app->rollback.counter_limit = ROLLBACK_LIMIT;
-
-
-    app->rollback.protocol_type = Proto_Kia_V0;
-
-
-    strncpy(app->rollback.proto, "Kia V0", sizeof(app->rollback.proto));
-
-
-
-
-
-
-
-
-    app->batch.count = 50;
-
-
-    app->batch.active = false;
-
-
-
-
-
-    return app;
-
-
+    view_dispatcher_attach_to_gui(app->view_dispatcher, GuiLayerWindow);
 }
 
-
-
-
-
-void protoPirateApp_free(ProtoPirateApp* app) {
-
-
-    furi_assert(app);
-
-
-    furi_string_free(app->last_raw);
-
-
-    furi_string_free(app->last_raw_hex);
-
-
-    for(uint8_t i = 0; i < app->history_count; i++) {
-
-
-        if(app->history[i].raw_data) furi_string_free(app->history[i].raw_data);
-
-
-    }
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewMenu);
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewWidget);
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewVarList);
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewTextBox);
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewButtonMenu);
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewPopup);
-
-
-    view_dispatcher_remove_view(app->view_dispatcher, ViewDialog);
-
-
-    submenu_free(app->submenu);
-
-
-    variable_item_list_free(app->var_item_list);
-
-
-    text_box_free(app->text_box);
-
-
-    widget_free(app->widget);
-
-
-    button_menu_free(app->button_menu);
-
-
-    popup_free(app->popup);
-
-
-    view_dispatcher_free(app->view_dispatcher);
-
-
-    furi_record_close(RECORD_GUI);
-
-
-    free(app);
-
-
-}
-
-
-
-
-
-// =====================           =====================
-
-
-static void scene_main_menu_callback(void* context, uint32_t index) {
-
-
+// ===================== Main Menu Scene =====================
+void protopirate_scene_main_menu_on_enter(void* context) {
     ProtoPirateApp* app = (ProtoPirateApp*)context;
-
-
-    if(!app) return;
-
-
-    app->submenu_index = index;
-
-
-
-
-
-    uint32_t event;
-
-
-    switch(index) {
-
-
-    case 0: event = EventReceive; break;
-
-
-    case 1: event = EventReplay; break;
-
-
-    case 2: event = EventRollback; break;
-
-
-    case 3: event = EventFreqSelect; break;
-
-
-    case 4: event = EventInfo; break;
-
-
-    case 5:
-
-
-        view_dispatcher_stop(app->view_dispatcher);
-
-
-        return;
-
-
-    default: return;
-
-
-    }
-
-
-    view_dispatcher_send_custom_event(app->view_dispatcher, event);
-
-
-}
-
-
-
-
-
-void scene_main_menu_alloc(ProtoPirateApp* app) {
-
-
-    submenu_reset(app->submenu);
-
-
-    submenu_set_header(app->submenu, "ProtoPirate TX v3.0");
-
-
-
-
-
-    char freq_str[24];
-
-
-    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0f);
-
-
+    app->current_scene = ProtoPirateSceneMainMenu;
     
-
-
-    submenu_add_item(app->submenu, "  Capture Signal", 0, scene_main_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Replay Signal", 1, scene_main_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  RollBack Attack", 2, scene_main_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, freq_str, 3, scene_main_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  About", 4, scene_main_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Exit", 5, scene_main_menu_callback, app);
-
-
-
-
-
-    view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
-
-
-}
-
-
-
-
-
-// ===================== Capture        =====================
-
-
-void scene_receive_alloc(ProtoPirateApp* app) {
-
-
     submenu_reset(app->submenu);
-
-
-    submenu_set_header(app->submenu, "Capture Signal");
-
-
-
-
-
-    char freq_str[24];
-
-
-    snprintf(freq_str, sizeof(freq_str), "Freq: %.3f MHz", (double)app->frequency / 1000000.0f);
-
-
-    submenu_add_item(app->submenu, "  >> Start Capture <<", 0, receive_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, freq_str, 0, NULL, app);
-
-
-    submenu_add_item(app->submenu, "  Back to Menu", 1, receive_menu_callback, app);
-
-
-
-
-
-    view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
-
-
-}
-
-
-
-
-
-// "BACK = MENU"
-
-
-void scene_result_main_alloc(ProtoPirateApp* app) {
-
-
-    button_menu_reset(app->button_menu);
-
-
-    button_menu_set_header(app->button_menu, "Signal Captured!");
-
-
-
-
-
-    snprintf(sn_str, sizeof(sn_str), "Send x3 (Sn:0x%lX)", app->last_result.serial);
-
-
-    snprintf(sn_str, sizeof(sn_str), "??????x3 (Sn:0x%lX)", app->last_result.serial);
-
-
-    button_menu_add_item(app->button_menu, "Send x5", 1, result_button_callback,
-
-
-                         ButtonMenuItemTypeCommon, app);
-
-
-    button_menu_add_item(app->button_menu, "Send x10", 2, result_button_callback,
-
-
-                         ButtonMenuItemTypeCommon, app);
-
-
-    button_menu_add_item(app->button_menu, "Batch Send", 3, result_button_callback,
-
-
-                         ButtonMenuItemTypeCommon, app);
-
-
-    button_menu_add_item(app->button_menu, "RollBack", 4, result_button_callback,
-
-
-                         ButtonMenuItemTypeCommon, app);
-
-
-    button_menu_add_item(app->button_menu, "Back", 5, result_button_callback,
-
-
-                         ButtonMenuItemTypeCommon, app);
-
-
-    button_menu_add_item(app->button_menu, "Back", 5, result_button_callback,
-
-
-                         ButtonMenuItemTypeCommon, app);
-
-
-    button_menu_set_selected_item(app->button_menu, 0);
-
-
-
-
-
-    view_set_previous_callback(button_menu_get_view(app->button_menu), back_to_menu_callback);
-
-
-}
-
-
-
-
-
-// ===================== RollBack        =====================
-
-
-void scene_rollback_alloc(ProtoPirateApp* app) {
-
-
-    submenu_reset(app->submenu);
-
-
-    submenu_set_header(app->submenu, "RollBack Attack");
-
-
-
-
-
-    char line[50];
-
-
-    snprintf(line, sizeof(line), "  %s Sn:0x%lX Btn:%u",
-
-
-             app->rollback.proto, app->rollback.serial, app->rollback.button);
-
-
-    submenu_add_item(app->submenu, line, 0, NULL, app);
-
-
-
-
-
-    snprintf(line, sizeof(line), "  Cnt:0x%04X->0x%04X Step:%u",
-
-
-             app->rollback.base_counter, app->rollback.target_counter, app->rollback.step_size);
-
-
+    submenu_set_header(app->submenu, "ProtoPirate RB v3.1");
+    submenu_add_item(app->submenu, "Read / Decode", 0, protopirate_scene_main_menu_on_event, app);
+    submenu_add_item(app->submenu, "RollBack Attack", 1, protopirate_scene_main_menu_on_event, app);
+    submenu_add_item(app->submenu, "Batch Send", 2, protopirate_scene_main_menu_on_event, app);
+    submenu_add_item(app->submenu, "TX Custom Frame", 3, protopirate_scene_main_menu_on_event, app);
+    submenu_add_item(app->submenu, "TX Raw Signal", 4, protopirate_scene_main_menu_on_event, app);
+    submenu_add_item(app->submenu, "About", 5, protopirate_scene_main_menu_on_event, app);
     
-
-
-    if(app->rollback.running) {
-
-
-        snprintf(line, sizeof(line), "  ** ATTACK: %u/%u **",
-
-
-                 app->rollback.current_counter, app->rollback.target_counter);
-
-
-        submenu_add_item(app->submenu, line, 0, NULL, app);
-
-
-    }
-
-
-
-
-
-    submenu_add_item(app->submenu, "  >> Start Attack <<", 0, rollback_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Config", 1, rollback_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Batch 50", 2, rollback_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Batch 100", 3, rollback_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Batch 500", 4, rollback_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Back", 5, rollback_menu_callback, app);
-
-
-    view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
-
-
-
-
-
-    //                                              
-
-
-    if(app->rollback.running) {
-
-
-        int32_t diff = (int32_t)app->rollback.target_counter - app->rollback.current_counter;
-
-
-        if(diff > 0) {
-
-
-            for(uint8_t b = 0; b < app->rollback.burst_count; b++) {
-
-
-                uint32_t dhi, dlo;
-
-
-                rollback_build_frame_proto(app->rollback.protocol_type,
-
-
-                    app->rollback.serial, app->rollback.button,
-
-
-                    (uint32_t)app->rollback.current_counter, &dhi, &dlo);
-
-
-                transmit_packet(app, dhi, dlo, app->frequency, 1);
-
-
-                furi_delay_ms(10);
-
-
-            }
-
-
-            app->rollback.current_counter += app->rollback.step_size;
-
-
-            app->rollback.total_sent += app->rollback.burst_count;
-
-
-            if(app->rollback.current_counter >= app->rollback.target_counter ||
-
-
-               app->rollback.current_counter >= app->rollback.counter_limit) {
-
-
-                app->rollback.running = false;
-
-
-            }
-
-
-        } else {
-
-
-            app->rollback.running = false;
-
-
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewSubmenu);
+}
+
+bool protopirate_scene_main_menu_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        switch(event.event) {
+            case 0:
+                scene_manager_next_scene(app->scene_manager, ProtoPirateSceneDecode);
+                break;
+            case 1:
+                scene_manager_next_scene(app->scene_manager, ProtoPirateSceneRollbackConfig);
+                break;
+            case 2:
+                scene_manager_next_scene(app->scene_manager, ProtoPirateSceneBatchConfig);
+                break;
+            case 3:
+                scene_manager_next_scene(app->scene_manager, ProtoPirateSceneTXCustom);
+                break;
+            case 4:
+                scene_manager_next_scene(app->scene_manager, ProtoPirateSceneTXRaw);
+                break;
+            case 5:
+                scene_manager_next_scene(app->scene_manager, ProtoPirateSceneAbout);
+                break;
         }
-
-
     }
-
-
+    return false;
 }
 
-
-
-
-
-// ===================== RollBack              =====================
-
-
-void scene_rollback_config_alloc(ProtoPirateApp* app) {
-
-
-    variable_item_list_reset(app->var_item_list);
-
-
-
-
-
-
-
-
-    VariableItem* proto_item = variable_item_list_add(
-
-
-    app->var_item_list, "Protocol", Proto_COUNT,
-
-
-        NULL, app);
-
-
-    variable_item_set_current_value_index(proto_item, app->rollback.protocol_type);
-
-
-    variable_item_set_current_value_text(proto_item,
-
-
-        PROTO_NAMES[app->rollback.protocol_type]);
-
-
-
-
-
-    // Serial
-
-
-    char serial_str[16];
-
-
-    snprintf(serial_str, sizeof(serial_str), "0x%lX", app->rollback.serial);
-
-
-    variable_item_list_add(app->var_item_list, serial_str, 0, NULL, app);
-
-
-
-
-
-    // Base Counter
-
-
-    char base_str[16];
-
-
-    snprintf(base_str, sizeof(base_str), "0x%04X", app->rollback.base_counter);
-
-
-    variable_item_list_add(app->var_item_list, base_str, 0, NULL, app);
-
-
-
-
-
-    // Target Counter
-
-
-    char target_str[16];
-
-
-    snprintf(target_str, sizeof(target_str), "0x%04X", app->rollback.target_counter);
-
-
-    variable_item_list_add(app->var_item_list, target_str, 0, NULL, app);
-
-
-
-
-
-    // Step
-
-
-    char step_str[16];
-
-
-    snprintf(step_str, sizeof(step_str), "%u", app->rollback.step_size);
-
-
-    variable_item_list_add(app->var_item_list, step_str, 0, NULL, app);
-
-
-
-
-
-    // Burst
-
-
-    char burst_str[16];
-
-
-    snprintf(burst_str, sizeof(burst_str), "%u", app->rollback.burst_count);
-
-
-    variable_item_list_add(app->var_item_list, burst_str, 0, NULL, app);
-
-
-
-
-
-    view_set_previous_callback(variable_item_list_get_view(app->var_item_list), back_to_menu_callback);
-
-
+void protopirate_scene_main_menu_on_exit(void* context) {
+    UNUSED(context);
 }
 
-
-
-
-
-// "  Replay Signal"
-
-
-void scene_replay_alloc(ProtoPirateApp* app) {
-
-
-    submenu_reset(app->submenu);
-
-
-    submenu_set_header(app->submenu, "Replay Signal");
-
-
-
-
-
-    char line[40];
-
-
-    if(app->last_result.bits > 0 && !app->last_result.is_demo) {
-
-
-        snprintf(line, sizeof(line), "  %s Sn:0x%lX",
-
-
-                 app->last_result.proto, app->last_result.serial);
-
-
-        submenu_add_item(app->submenu, "  >> Replay Now <<", 0, replay_menu_callback, app);
-
-
-    } else {
-
-
-        submenu_add_item(app->submenu, "  >> Send Demo <<", 0, replay_menu_callback, app);
-
-
-    }
-
-
-    submenu_add_item(app->submenu, "  Demo (Kia Unlock)", 1, replay_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Batch 50", 2, replay_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Batch 100", 3, replay_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Batch 500", 4, replay_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Back", 5, replay_menu_callback, app);
-
-
-
-
-
-    view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
-
-
-}
-
-
-
-
-
-// =====================                                      =====================
-
-
-void scene_batch_send_alloc(ProtoPirateApp* app) {
-
-
-    popup_reset(app->popup);
-
-
-    popup_set_header(app->popup, "Batch Send", 42, 16, AlignCenter, AlignCenter);
-
-
+// ===================== Decode Scene =====================
+void protopirate_scene_decode_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneDecode;
     
-
-
-    char line[32];
-
-
-    snprintf(line, sizeof(line), "Sending %u frames...", app->batch.count);
-
-
-    popup_set_text(app->popup, line, 42, 36, AlignCenter, AlignCenter);
-
-
-
-
-
-    view_set_previous_callback(popup_get_view(app->popup), back_to_menu_callback);
-
-
+    widget_reset(app->widget);
+    
+    // Simulated capture - in real use, Sub-GHz RAW capture would feed data here
+    // For now we show instructions
+    furi_string_printf(app->info_str,
+        "Decode Mode\n\n"
+        "Use Flipper Sub-GHz app to capture\n"
+        "a signal first (Read RAW).\n\n"
+        "Then come here with the RAW data.\n\n"
+        "Press OK to simulate decode\n"
+        "of sample data.");
+    
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeCenter, "Simulate", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
 }
 
-
-
-
-
-// =====================                    =====================
-
-
-void scene_batch_config_alloc(ProtoPirateApp* app) {
-
-
-    submenu_reset(app->submenu);
-
-
-    submenu_set_header(app->submenu, "Batch Send");
-
-
-
-
-
-    submenu_add_item(app->submenu, "  50 Fast", 0, rollback_batch_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  100", 1, rollback_batch_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  500 Full", 2, rollback_batch_menu_callback, app);
-
-
-    submenu_add_item(app->submenu, "  Back", 3, rollback_batch_menu_callback, app);
-
-
-    view_set_previous_callback(submenu_get_view(app->submenu), back_to_menu_callback);
-
-
+bool protopirate_scene_decode_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        // Simulate a captured Kia V0 signal
+        FuriString* test_signal = furi_string_alloc();
+        furi_string_set_str(test_signal, 
+            "8000 -4000 560 -280 280 -560 560 -280 560 -280 280 -560 "
+            "560 -280 280 -560 280 -560 560 -280 280 -560 560 -280 "
+            "560 -280 560 -280 280 -560 560 -280 280 -560 280 -560 "
+            "560 -280 280 -560 560 -280 280 -560 280 -560 560 -280 "
+            "560 -280 280 -560 280 -560 560 -280 560 -280 280 -560 "
+            "560 -280 280 -560 560 -280 560 -280 560 -280 280 -560 "
+            "280 -560 560 -280 280 -560 280 -560 560 -280 560 -280 "
+            "560 -280 280 -560 560 -280 280 -560 560 -280 280 -560 "
+            "280 -560 560 -280 560 -280 280 -560 560 -280 560 -280 "
+            "12000");
+        
+        DecodeResult* result = decode_signal(app, test_signal);
+        if(result) {
+            memcpy(&app->last_result, result, sizeof(DecodeResult));
+            // Also populate rollback state from decode result
+            strncpy(app->rollback.proto, result->proto, sizeof(app->rollback.proto));
+            app->rollback.serial = result->serial;
+            app->rollback.button = result->button;
+            app->rollback.base_counter = result->counter;
+            app->rollback.target_counter = result->counter + 50;
+            app->rollback.protocol_type = Proto_Kia_V0;
+            
+            free(result);
+            scene_manager_next_scene(app->scene_manager, ProtoPirateSceneDecodeResult);
+        } else {
+            furi_string_printf(app->info_str, "Decode FAILED\n\nCould not identify protocol.\nTry different signal.");
+            widget_reset(app->widget);
+            widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+            widget_add_button(app->widget, GuiButtonTypeCenter, "Back", NULL, app);
+        }
+        furi_string_free(test_signal);
+    } else if(event.type == SceneManagerEventTypeCustom + 1) {
+        scene_manager_previous_scene(app->scene_manager);
+    }
+    return false;
 }
 
+void protopirate_scene_decode_on_exit(void* context) {
+    UNUSED(context);
+}
 
+// ===================== Decode Result Scene =====================
+void protopirate_scene_decode_result_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneDecodeResult;
+    
+    widget_reset(app->widget);
+    
+    DecodeResult* r = &app->last_result;
+    furi_string_printf(app->info_str,
+        "DECODED SIGNAL\n"
+        "Proto: %s\n"
+        "Serial: 0x%08lX\n"
+        "Button: %s (%u)\n"
+        "Counter: %u (0x%04X)\n"
+        "Bits: %u\n"
+        "Encrypted: %s\n\n"
+        "OK=Send Once  BACK=Menu",
+        r->proto, r->serial, r->btn_name, r->button,
+        r->counter, r->counter, r->bits,
+        r->encrypted ? "Yes" : "No");
+    
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeCenter, "Send Once", NULL, app);
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Back", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+}
 
+bool protopirate_scene_decode_result_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        // Send once
+        if(!g_device) tx_device_init();
+        if(g_device) {
+            rollback_send_single(app, app->last_result.serial, app->last_result.button, app->last_result.counter);
+            notification_message(app->notifications, &sequence_success);
+        } else {
+            notification_message(app->notifications, &sequence_error);
+        }
+    } else if(event.type == SceneManagerEventTypeCustom + 1) {
+        scene_manager_search_and_switch_to_previous_scene(
+            app->scene_manager, ProtoPirateSceneMainMenu);
+    }
+    return false;
+}
 
+void protopirate_scene_decode_result_on_exit(void* context) {
+    UNUSED(context);
+}
 
-// =====================              =====================
+// ===================== Rollback Config Scene =====================
+static void rollback_proto_callback(VariableItem* item) {
+    ProtoPirateApp* app = variable_item_get_context(item);
+    uint8_t idx = variable_item_get_current_value_index(item);
+    app->rollback.protocol_type = idx;
+    switch(idx) {
+        case 0: strcpy(app->rollback.proto, "Kia V0"); app->frequency = 433920000; break;
+        case 1: strcpy(app->rollback.proto, "Kia V1"); app->frequency = 433920000; break;
+        case 2: strcpy(app->rollback.proto, "Kia V2"); app->frequency = 433920000; break;
+        case 3: strcpy(app->rollback.proto, "Ford"); app->frequency = 315000000; break;
+        case 4: strcpy(app->rollback.proto, "Subaru"); app->frequency = 433920000; break;
+        case 5: strcpy(app->rollback.proto, "Fiat"); app->frequency = 433920000; break;
+        case 6: strcpy(app->rollback.proto, "Chrysler"); app->frequency = 315000000; break;
+        case 7: strcpy(app->rollback.proto, "Honda"); app->frequency = 315000000; break;
+        case 8: strcpy(app->rollback.proto, "Toyota"); app->frequency = 315000000; break;
+        case 9: strcpy(app->rollback.proto, "StarLine"); app->frequency = 433920000; break;
+    }
+    variable_item_set_current_value_text(item, app->rollback.proto);
+}
 
+static void rollback_button_callback(VariableItem* item) {
+    ProtoPirateApp* app = variable_item_get_context(item);
+    uint8_t idx = variable_item_get_current_value_index(item);
+    app->rollback.button = rollback_get_button_value(app->rollback.protocol_type, idx);
+    char txt[16];
+    snprintf(txt, sizeof(txt), "%s (%u)", get_button_name(app->rollback.proto, app->rollback.button), app->rollback.button);
+    variable_item_set_current_value_text(item, txt);
+}
 
-static const uint32_t FREQ_TABLE[] = {315000000, 433920000, 868350000, 300000000, 390000000, 418000000, 868000000, 915000000};
+static void rollback_mode_callback(VariableItem* item) {
+    ProtoPirateApp* app = variable_item_get_context(item);
+    uint8_t idx = variable_item_get_current_value_index(item);
+    app->rollback.bidirectional = (idx == 1);
+    variable_item_set_current_value_text(item, idx == 0 ? "Forward" : "Bidirectional");
+}
 
+void protopirate_scene_rollback_config_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneRollbackConfig;
+    
+    variable_item_list_reset(app->variable_item_list);
+    variable_item_list_set_header(app->variable_item_list, "RollBack Config");
+    
+    // Protocol
+    VariableItem* item = variable_item_list_add(app->variable_item_list, "Protocol", 10, rollback_proto_callback, app);
+    variable_item_set_current_value_index(item, app->rollback.protocol_type);
+    variable_item_set_current_value_text(item, app->rollback.proto);
+    
+    // Button
+    item = variable_item_list_add(app->variable_item_list, "Button", 4, rollback_button_callback, app);
+    variable_item_set_current_value_index(item, app->rollback.button > 4 ? 3 : app->rollback.button - 1);
+    char txt[16];
+    snprintf(txt, sizeof(txt), "%s (%u)", get_button_name(app->rollback.proto, app->rollback.button), app->rollback.button);
+    variable_item_set_current_value_text(item, txt);
+    
+    // Mode
+    item = variable_item_list_add(app->variable_item_list, "Mode", 2, rollback_mode_callback, app);
+    variable_item_set_current_value_index(item, app->rollback.bidirectional ? 1 : 0);
+    variable_item_set_current_value_text(item, app->rollback.bidirectional ? "Bidirectional" : "Forward");
+    
+    // Add Run button
+    variable_item_list_add(app->variable_item_list, "START ATTACK", 1, NULL, NULL);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewVariableItemList);
+}
 
-static const char* FREQ_NAMES[] = {
+bool protopirate_scene_rollback_config_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        // Start attack
+        if(!g_device) tx_device_init();
+        if(!g_device) {
+            notification_message(app->notifications, &sequence_error);
+            return false;
+        }
+        scene_manager_next_scene(app->scene_manager, ProtoPirateSceneRollbackRun);
+    }
+    return false;
+}
 
+void protopirate_scene_rollback_config_on_exit(void* context) {
+    UNUSED(context);
+}
 
-    "315.00 MHz", "433.92 MHz", "868.35 MHz",
+// ===================== Rollback Run Scene =====================
+void protopirate_scene_rollback_run_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneRollbackRun;
+    
+    widget_reset(app->widget);
+    
+    furi_string_printf(app->info_str,
+        "RollBack ATTACK\n"
+        "Proto: %s\n"
+        "Serial: 0x%08lX\n"
+        "Button: %s\n"
+        "Counter: %u -> %u\n"
+        "Mode: %s\n\n"
+        "OK=Start  BACK=Cancel",
+        app->rollback.proto,
+        app->rollback.serial,
+        get_button_name(app->rollback.proto, app->rollback.button),
+        app->rollback.base_counter,
+        app->rollback.target_counter,
+        app->rollback.bidirectional ? "Bidirectional" : "Forward");
+    
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeCenter, "START", NULL, app);
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Cancel", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+}
 
+bool protopirate_scene_rollback_run_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        // Start the attack
+        notification_message(app->notifications, &sequence_single_vibro);
+        
+        widget_reset(app->widget);
+        furi_string_printf(app->info_str, "RUNNING...\n\nPress BACK to stop.");
+        widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+        widget_add_button(app->widget, GuiButtonTypeLeft, "STOP", NULL, app);
+        
+        if(app->rollback.bidirectional) {
+            rollback_bidirectional_attack(app);
+        } else {
+            rollback_attack_run(app);
+        }
+        
+        // Show results
+        widget_reset(app->widget);
+        furi_string_printf(app->info_str,
+            "DONE!\n\nFrames sent: %lu\nLast counter: 0x%04X\n\nPress BACK to menu.",
+            app->rollback.total_sent,
+            app->rollback.current_counter);
+        widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+        widget_add_button(app->widget, GuiButtonTypeLeft, "Menu", NULL, app);
+        
+        notification_message(app->notifications, &sequence_success);
+    } else if(event.type == SceneManagerEventTypeCustom + 1) {
+        // Stop
+        app->rollback.running = false;
+        notification_message(app->notifications, &sequence_error);
+    }
+    return false;
+}
 
-    "300.00 MHz", "390.00 MHz", "418.00 MHz",
+void protopirate_scene_rollback_run_on_exit(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->rollback.running = false;
+}
 
+// ===================== Batch Config Scene =====================
+void protopirate_scene_batch_config_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneBatchConfig;
+    
+    widget_reset(app->widget);
+    app->batch.count = 100;
+    
+    furi_string_printf(app->info_str,
+        "Batch Send\n\n"
+        "Will send %lu frames rapidly.\n"
+        "Uses last decode result.\n\n"
+        "OK=Start  BACK=Menu",
+        app->batch.count);
+    
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeCenter, "START", NULL, app);
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Back", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+}
 
-    "868.00 MHz", "915.00 MHz"
+bool protopirate_scene_batch_config_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        if(!g_device) tx_device_init();
+        if(!g_device) {
+            notification_message(app->notifications, &sequence_error);
+            return false;
+        }
+        
+        scene_manager_next_scene(app->scene_manager, ProtoPirateSceneBatchRun);
+    } else if(event.type == SceneManagerEventTypeCustom + 1) {
+        scene_manager_previous_scene(app->scene_manager);
+    }
+    return false;
+}
 
+void protopirate_scene_batch_config_on_exit(void* context) {
+    UNUSED(context);
+}
 
+// ===================== Batch Run Scene =====================
+void protopirate_scene_batch_run_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneBatchRun;
+    
+    widget_reset(app->widget);
+    furi_string_printf(app->info_str, "Batch Running...\n\n%lu / %lu", 
+                       app->batch.sent_so_far, app->batch.count);
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeLeft, "STOP", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+    
+    batch_send_start(app);
+    
+    widget_reset(app->widget);
+    furi_string_printf(app->info_str, "Batch DONE!\n\nSent: %lu frames\n\nBACK=Menu", app->batch.sent_so_far);
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Menu", NULL, app);
+}
+
+bool protopirate_scene_batch_run_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom + 1) {
+        batch_send_stop(app);
+    }
+    return false;
+}
+
+void protopirate_scene_batch_run_on_exit(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    batch_send_stop(app);
+}
+
+// ===================== TX Custom Frame Scene =====================
+void protopirate_scene_tx_custom_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneTXCustom;
+    
+    widget_reset(app->widget);
+    
+    furi_string_printf(app->info_str,
+        "TX Custom Frame\n\n"
+        "Serial: 0x%08lX\n"
+        "Button: %s\n"
+        "Counter: %u\n"
+        "Freq: %lu Hz\n\n"
+        "OK=Send  BACK=Menu",
+        app->rollback.serial,
+        get_button_name(app->rollback.proto, app->rollback.button),
+        app->rollback.base_counter,
+        app->frequency);
+    
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeCenter, "SEND", NULL, app);
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Back", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+}
+
+bool protopirate_scene_tx_custom_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        if(!g_device) tx_device_init();
+        if(g_device) {
+            rollback_send_single(app, app->rollback.serial, app->rollback.button, app->rollback.base_counter);
+            notification_message(app->notifications, &sequence_success);
+        } else {
+            notification_message(app->notifications, &sequence_error);
+        }
+    } else if(event.type == SceneManagerEventTypeCustom + 1) {
+        scene_manager_previous_scene(app->scene_manager);
+    }
+    return false;
+}
+
+void protopirate_scene_tx_custom_on_exit(void* context) {
+    UNUSED(context);
+}
+
+// ===================== TX RAW Scene =====================
+void protopirate_scene_tx_raw_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneTXRaw;
+    
+    widget_reset(app->widget);
+    furi_string_printf(app->info_str,
+        "TX RAW Signal\n\n"
+        "Sends the captured RAW signal\n"
+        "from the last read operation.\n\n"
+        "OK=Send  BACK=Menu");
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeCenter, "SEND RAW", NULL, app);
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Back", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+}
+
+bool protopirate_scene_tx_raw_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom) {
+        if(!g_device) tx_device_init();
+        if(g_device && app->captured_signal) {
+            transmit_raw(app, app->captured_signal, app->frequency, 3);
+            notification_message(app->notifications, &sequence_success);
+        } else {
+            notification_message(app->notifications, &sequence_error);
+        }
+    } else if(event.type == SceneManagerEventTypeCustom + 1) {
+        scene_manager_previous_scene(app->scene_manager);
+    }
+    return false;
+}
+
+void protopirate_scene_tx_raw_on_exit(void* context) {
+    UNUSED(context);
+}
+
+// ===================== About Scene =====================
+void protopirate_scene_about_on_enter(void* context) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    app->current_scene = ProtoPirateSceneAbout;
+    
+    widget_reset(app->widget);
+    furi_string_printf(app->info_str,
+        "ProtoPirate RB v3.1\n"
+        "RollBack Attack Tool\n\n"
+        "Protocols:\n"
+        "Kia/Hyundai, Ford, Subaru\n"
+        "Fiat, Chrysler, Honda\n"
+        "Toyota, StarLine, BFT\n\n"
+        "TX ENABLED\n"
+        "CC1101 Radio Active\n\n"
+        "2025 ProtoPirate RB\n"
+        "github.com/ouyangchuanwa11\n"
+        "/ProtoPirateTX\n\n"
+        "BACK to return");
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(app->info_str));
+    widget_add_button(app->widget, GuiButtonTypeLeft, "Back", NULL, app);
+    
+    view_dispatcher_switch_to_view(app->view_dispatcher, ProtoPirateViewWidget);
+}
+
+bool protopirate_scene_about_on_event(void* context, SceneManagerEvent event) {
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    if(event.type == SceneManagerEventTypeCustom + 1) {
+        scene_manager_previous_scene(app->scene_manager);
+    }
+    return false;
+}
+
+void protopirate_scene_about_on_exit(void* context) {
+    UNUSED(context);
+}
+
+// ===================== Custom Event Callback =====================
+static bool protopirate_custom_callback(void* context, uint32_t custom_event) {
+    furi_assert(context);
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    return scene_manager_handle_custom_event(app->scene_manager, custom_event);
+}
+
+// ===================== Back Event Callback =====================
+static bool protopirate_back_event_callback(void* context) {
+    furi_assert(context);
+    ProtoPirateApp* app = (ProtoPirateApp*)context;
+    
+    // In rollback run scene, back = stop
+    if(app->current_scene == ProtoPirateSceneRollbackRun && app->rollback.running) {
+        scene_manager_handle_custom_event(app->scene_manager, 1);
+        return true;
+    }
+    
+    return scene_manager_handle_back_event(app->scene_manager);
+}
+
+// ===================== Scene Handler Table =====================
+const SceneManagerHandlers protopirate_scene_handlers = {
+    .on_enter_handlers = NULL,
+    .on_event_handlers = NULL,
+    .on_exit_handlers = NULL,
+    .scene_num = 0,
 };
 
-
-#define FREQ_COUNT 8
-
-
-
-
-
-static void freq_change_callback(VariableItem* item) {
-
-
-    if(!item) return;
-
-
-    ProtoPirateApp* app = variable_item_get_context(item);
-
-
-    if(!app) return;
-
-
-    uint8_t index = variable_item_get_current_value_index(item);
-
-
-    if(index < FREQ_COUNT) {
-
-
-        app->frequency = FREQ_TABLE[index];
-
-
-        variable_item_set_current_value_text(item, FREQ_NAMES[index]);
-
-
-    }
-
-
-}
-
-
-
-
-
-void scene_freq_select_alloc(ProtoPirateApp* app) {
-
-
-    variable_item_list_reset(app->var_item_list);
-
-
-    const char* name = "Frequency";
-
-
-    
-
-
-    VariableItem* freq_item = variable_item_list_add(
-
-
-        app->var_item_list, name, FREQ_COUNT,
-
-
-        freq_change_callback, app);
-
-
-    
-
-
-    uint8_t default_idx = 1;
-
-
-    for(int i = 0; i < FREQ_COUNT; i++) {
-
-
-        if(app->frequency == FREQ_TABLE[i]) { default_idx = i; break; }
-
-
-    }
-
-
-    variable_item_set_current_value_index(freq_item, default_idx);
-
-
-    variable_item_set_current_value_text(freq_item, FREQ_NAMES[default_idx]);
-
-
-
-
-
-    view_set_previous_callback(variable_item_list_get_view(app->var_item_list), back_to_menu_callback);
-
-
-}
-
-
-
-
-
-// ===================== About =====================
-
-
-void scene_info_alloc(ProtoPirateApp* app) {
-
-
-    widget_reset(app->widget);
-
-
-    widget_add_string_element(app->widget, 64, 2, AlignCenter, AlignTop, FontPrimary,
-
-
-                              "ProtoPirate TX");
-
-
-    widget_add_string_element(app->widget, 64, 16, AlignCenter, AlignTop, FontSecondary,
-
-
-                              "v3.0 RollBack");
-
-
-    widget_add_string_element(app->widget, 64, 28, AlignCenter, AlignTop, FontKeyboard,
-
-
-                              "Real RX + OOK Decode");
-
-
-    widget_add_string_element(app->widget, 64, 38, AlignCenter, AlignTop, FontKeyboard,
-
-
-                              "10 Protocols Supported");
-
-
-    widget_add_string_element(app->widget, 64, 48, AlignCenter, AlignTop, FontKeyboard,
-
-
-                              "Batch Send 50/100/500");
-
-
-    widget_add_string_element(app->widget, 64, 58, AlignCenter, AlignTop, FontKeyboard,
-
-
-                              "TX: Real CC1101");
-
-
-    widget_add_string_element(app->widget, 64, 68, AlignCenter, AlignTop, FontPrimary,
-
-
-                              "BACK = MENU");
-
-
-
-
-
-    view_set_previous_callback(widget_get_view(app->widget), back_to_menu_callback);
-
-
-}
-
-
-
-
-
-// =====================           =====================
-
-
-__attribute__((visibility("default"))) int32_t app_main(void* p) {
-
-
+// ===================== App Entry Point =====================
+void protopirate_rb_app(void* p) {
     UNUSED(p);
-
-
-
-
-
-    ProtoPirateApp* app = protoPirateApp_alloc();
-
-
-    if(!app) return -1;
-
-
-
-
-
-    view_dispatcher_add_view(app->view_dispatcher, ViewMenu,
-
-
-                            submenu_get_view(app->submenu));
-
-
-    view_dispatcher_add_view(app->view_dispatcher, ViewWidget,
-
-
-                            widget_get_view(app->widget));
-
-
-    view_dispatcher_add_view(app->view_dispatcher, ViewVarList,
-
-
-                            variable_item_list_get_view(app->var_item_list));
-
-
-    view_dispatcher_add_view(app->view_dispatcher, ViewTextBox,
-
-
-                            text_box_get_view(app->text_box));
-
-
-    view_dispatcher_add_view(app->view_dispatcher, ViewButtonMenu,
-
-
-                            button_menu_get_view(app->button_menu));
-
-
-    view_dispatcher_add_view(app->view_dispatcher, ViewPopup,
-
-
-                            popup_get_view(app->popup));
-
-
-
-
-
-    scene_main_menu_alloc(app);
-
-
-    view_dispatcher_switch_to_view(app->view_dispatcher, ViewMenu);
-
-
+    
+    // Init CC1101 TX device
+    tx_device_init();
+    
+    ProtoPirateApp* app = malloc(sizeof(ProtoPirateApp));
+    memset(app, 0, sizeof(ProtoPirateApp));
+    
+    // Init notifications
+    app->notifications = furi_record_open(RECORD_NOTIFICATION);
+    
+    // Allocate views
+    app->submenu = submenu_alloc();
+    app->widget = widget_alloc();
+    app->variable_item_list = variable_item_list_alloc();
+    
+    // Allocate string
+    app->info_str = furi_string_alloc();
+    app->captured_signal = furi_string_alloc();
+    
+    // Set default values
+    app->frequency = 433920000;
+    app->tx_repeats = 5;
+    app->tx_busy = false;
+    
+    strcpy(app->rollback.proto, "Kia V0");
+    app->rollback.protocol_type = Proto_Kia_V0;
+    app->rollback.serial = 0x12345678;
+    app->rollback.button = 1; // Lock
+    app->rollback.base_counter = 1000;
+    app->rollback.target_counter = 1050;
+    app->rollback.step_size = 1;
+    app->rollback.burst_count = 3;
+    app->rollback.running = false;
+    app->rollback.bidirectional = false;
+    
+    app->batch.count = 100;
+    app->batch.active = false;
+    
+    // Init scene manager manually (no fap entry helpers)
+    app->scene_manager = scene_manager_alloc(NULL, app);
+    
+    view_dispatcher_init(app);
+    view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
+    view_dispatcher_set_custom_event_callback(app->view_dispatcher, protopirate_custom_callback);
+    view_dispatcher_set_navigation_event_callback(app->view_dispatcher, protopirate_back_event_callback);
+    
+    // Register views
+    view_dispatcher_add_view(app->view_dispatcher, ProtoPirateViewSubmenu, submenu_get_view(app->submenu));
+    view_dispatcher_add_view(app->view_dispatcher, ProtoPirateViewWidget, widget_get_view(app->widget));
+    view_dispatcher_add_view(app->view_dispatcher, ProtoPirateViewVariableItemList, variable_item_list_get_view(app->variable_item_list));
+    
+    // Start at main menu
+    app->current_scene = ProtoPirateSceneMainMenu;
+    protopirate_scene_main_menu_on_enter(app);
+    
     view_dispatcher_run(app->view_dispatcher);
-
-
-
-
-
+    
+    // Cleanup
     transmit_packet_stop(app);
-
-
-    subghz_close();
-
-
-    protoPirateApp_free(app);
-
-
-    return 0;
-
-
+    tx_device_deinit();
+    
+    view_dispatcher_remove_view(app->view_dispatcher, ProtoPirateViewSubmenu);
+    view_dispatcher_remove_view(app->view_dispatcher, ProtoPirateViewWidget);
+    view_dispatcher_remove_view(app->view_dispatcher, ProtoPirateViewVariableItemList);
+    
+    view_dispatcher_free(app->view_dispatcher);
+    scene_manager_free(app->scene_manager);
+    
+    submenu_free(app->submenu);
+    widget_free(app->widget);
+    variable_item_list_free(app->variable_item_list);
+    
+    furi_string_free(app->info_str);
+    furi_string_free(app->captured_signal);
+    
+    furi_record_close(RECORD_NOTIFICATION);
+    
+    free(app);
 }
-
-
