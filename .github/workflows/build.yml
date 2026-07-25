@@ -15,15 +15,19 @@ jobs:
         run: |
           pip install ufbt
           ufbt setup
-      - name: Build
+      - name: Move files to root
         run: |
-          cd ProtoPirateTX
-          ufbt
+          rm -f application.fam protopirate_decoder.c protopirate_icon.png 2>/dev/null || true
+          cp ProtoPirateTX/*.c .
+          cp ProtoPirateTX/*.h .
+          cp ProtoPirateTX/application.fam .
+      - name: Build
+        run: ufbt
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: ProtoPirateTX
           path: |
-            ProtoPirateTX/build/**/*.fap
-            ProtoPirateTX/dist/**/*.fap
+            build/**/*.fap
+            dist/**/*.fap
           if-no-files-found: ignore
