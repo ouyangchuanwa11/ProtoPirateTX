@@ -21,11 +21,12 @@ jobs:
         run: pip install ufbt
 
       - name: Build with ufbt
-        working-directory: .
-        run: ufbt
+        run: |
+          cd ProtoPirateTX
+          ufbt
 
-      - name: Upload FAP artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ProtoPirateTX
-          path: dist/*.fap
+          path: ProtoPirateTX/build/**/*.fap
