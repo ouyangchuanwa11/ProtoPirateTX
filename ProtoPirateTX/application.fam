@@ -1,0 +1,16 @@
+App(
+    appid="protopirate_rb",
+    name="ProtoPirate RB",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="protopirate_rb_app",
+    cdefines=["APP_PROTOPIRATE_RB"],
+    requires=["gui", "subghz"],
+    sources=[
+        "protopirate_rb.c",
+        "protopirate_decoder.c",
+        "protopirate_tx.c",
+        "protopirate_rollback.c",
+    ],
+    stack_size=4096,
+    order=90,
+)
